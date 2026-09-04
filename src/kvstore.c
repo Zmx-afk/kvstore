@@ -4,6 +4,7 @@
 #include "include/kvstore.h"
 #include "include/protocol.h"
 #include "network/server.h"
+#include "utils/log.h"
 #include "utils/timer.h"
 
 #include "engine/kvs_array.h"
@@ -21,6 +22,10 @@
 
 
 #include "persist/persistence.h"
+
+
+#include <sys/time.h>
+#define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
 // extern ServerConfig g_config;
 
@@ -172,7 +177,7 @@ int init_kvengine(void) {
         g_engine.exist = array_exist_wrap;
         g_engine.create = array_create_wrap;
         g_engine.destroy = array_destroy_wrap;
-        printf("array\n");
+        LOG_DEBUG("array\n");
     }
     else if(!strcmp(g_config.engine,"rbtree"))
     {
@@ -183,7 +188,7 @@ int init_kvengine(void) {
         g_engine.exist = rbtree_exist_wrap;
         g_engine.create = rbtree_create_wrap;
         g_engine.destroy = rbtree_destroy_wrap;
-        printf("rbtree\n");
+        LOG_DEBUG("rbtree\n");
     }
     else if(!strcmp(g_config.engine,"hash"))
     {
@@ -194,7 +199,7 @@ int init_kvengine(void) {
         g_engine.exist = hash_exist_wrap;
         g_engine.create = hash_create_wrap;
         g_engine.destroy = hash_destroy_wrap;
-        printf("hash\n");
+        LOG_DEBUG("hash\n");
     }
     else 
     {
@@ -278,12 +283,31 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
 
     if(admin_cmd != -1)
     {
+        LOG_DEBUG("admin_cmd:%s\n",admin_command[admin_cmd]);
         //处理管理指令
         switch(admin_cmd)
         {
             case ADMIN_CMD_SAVE:
             {
-                RDB();
+                kvs_array_t* current = (kvs_array_t*)g_engine.impl;
+                struct timeval tv_begin;
+	            gettimeofday(&tv_begin, NULL);
+
+                RDB_sync();
+                struct timeval tv_end;
+	            gettimeofday(&tv_end, NULL);
+
+	            int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
+                
+                LOG_DEBUG("RDB_sync调用成功 timeused:%d\n", time_used);
+                break;
+            }
+            case ADMIN_CMD_BGSAVE:
+            {
+                kvs_array_t* current = (kvs_array_t*)g_engine.impl;
+                RDB_async();
+                LOG_DEBUG("RDB_async调用成功\n");
+                break;
             }
             default:
                 ret_len = sprintf(response,"-ERR unknown admin cmd\r\n");

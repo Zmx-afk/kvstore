@@ -55,13 +55,30 @@ static void rdb_write_kv(int fd, kvs_blob_t *key, kvs_blob_t *val, uint64_t expi
     uint32_t klen = key->len;
     uint32_t vlen = val->len;
 
-    write(fd,&klen,sizeof(uint32_t));
-    write(fd,key->data,klen);
+    if(write(fd,&klen,sizeof(uint32_t))==-1)
+    {
+        LOG_DEBUG("write klen fail\n");
+    }
+    
+    if(write(fd,key->data,klen)==-1)
+    {
+        LOG_DEBUG("write kdata fail\n");
+    }
 
-    write(fd,&vlen,sizeof(uint32_t));
-    write(fd,val->data,vlen);
+    if(write(fd,&vlen,sizeof(uint32_t))==-1)
+    {
+        LOG_DEBUG("write vlen fail\n");
+    }
+    
+    if(write(fd,val->data,vlen)==-1)
+    {
+        LOG_DEBUG("write vdata fail\n");
+    }
 
-    write(fd,&expire_ms,sizeof(uint64_t));
+    if(write(fd,&expire_ms,sizeof(uint64_t))==-1)
+    {
+        LOG_DEBUG("write expire_ms fail\n");
+    }
 
 }
 
@@ -150,7 +167,7 @@ int RDB_realize()
 
 #endif
     
-    exit(0);
+    //exit(0);
 
     return 0;   
 
@@ -158,10 +175,22 @@ int RDB_realize()
 }
 
 /*
+RDB_sync
+同步进行rdb持久化
+*/
+
+int RDB_sync()
+{
+    RDB_realize();
+    fflush(stdout);
+    return 0;
+}
+
+/*
 RDB
 create a new process it will take a photo to main process's data
 */
-int RDB()
+int RDB_async()
 {
     pid_t pid = fork();
     
@@ -172,18 +201,15 @@ int RDB()
     }
     else if(pid ==0)
     {
-        printf("===== CHILD PROCESS START =====\n");
-        
+       
         for(int fd = 3; fd < 1024; fd++){
             close(fd);
         }
         RDB_realize();
-        printf("==== CHILD will exit now ====\n");
         fflush(stdout);
         exit(0);
         
     }
-
     return 0;
 
 }
@@ -251,7 +277,7 @@ int RDB_load(kvs_array_t *inst)
             close(fd);
             return -1;
         }
-        if(read_n(fd,&key_buf,klen)!=0)
+        if(read_n(fd,key_buf,klen)!=0)
         {
             free(key_buf);
             break;
@@ -271,7 +297,7 @@ int RDB_load(kvs_array_t *inst)
             close(fd);
             return -1;
         }
-        if(read_n(fd,&val_buf,vlen)!=0)
+        if(read_n(fd,val_buf,vlen)!=0)
         {
             free(key_buf);
             free(val_buf);
@@ -299,7 +325,7 @@ int RDB_load(kvs_array_t *inst)
 
 }
 
-
+//=============================================================================================
 
 //AOF
 int AOF(const char *msg)

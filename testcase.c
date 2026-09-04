@@ -4,6 +4,7 @@
 #include "src/include/kvstore.h"
 #include "src/include/protocol.h"
 #include "src/utils/log.h"
+#include "src/include/config.h"
 
 #include "src/persist/persistence.h"
 #include <stdio.h>
@@ -103,6 +104,13 @@ void kvs_testcase(int connfd) {
     send_msg(connfd,"SAVE");
 }
 
+void kvs_testrdb(int connfd)
+{
+    testcase(connfd, "SET Teacher King", "+OK\r\n", "SET-Teacher");
+    LOG_DEBUG("SET完成\n");
+    send_msg(connfd,"SAVE");
+}
+
 void kvs_testcase_100w(int connfd) {
 
 	int count = 10000;
@@ -199,6 +207,7 @@ void kvs_testcase1_100w(int connfd)
 
 	printf("44%%\n");
 
+
     for(int i = 0; i < count; i++)
     {
         char total_key[128] = {0};
@@ -282,8 +291,36 @@ void kvs_testcase1_100w(int connfd)
 
 	printf("testcase --> time_used: %d, qps: %d\n", time_used,  (count* 9000) / time_used);
 
-    send_msg(connfd,"SAVE");
+    
 }
+
+void RDB_sync_testcase(int connfd)
+{
+    int count = 1000;
+	
+    
+    for(int i = 0; i < count; i++)
+    {
+        char total_key[128] = {0};
+        char total_val[128] = {0};    
+        char total[1024] = {0};
+        char key[] = "Teacher";
+        char val[] = "King";
+        snprintf(total_key, sizeof(total_key), "%s%d", key, i);
+        snprintf(total_val, sizeof(total_val), "%s%d", val, i);
+        snprintf(total, sizeof(total), "SET %s %s", total_key, total_val);
+
+		//printf("SET %s\n",total_key);
+        testcase(connfd, total, "+OK\r\n", "SET-Teacher");
+    }
+    
+
+
+
+    send_msg(connfd,"SAVE");
+
+}
+
 
 
 // testcase 192.168.254.100  2000
@@ -318,21 +355,46 @@ int main(int argc, char *argv[]) {
     	printf("连接服务器失败,请检查服务端是否启动,IP/端口是否正确。\n");
     	return -1;
 	}
+    //kvs_testrdb(connfd);
 	//kvs_testcase(connfd);
 	//kvs_testcase_100w(connfd);
 	//kvs_testcase1_100w(connfd);
-    init_kvengine();
-    kvs_array_t *current = (kvs_array_t*)g_engine.impl;
+
+
+    RDB_sync_testcase(connfd);
+
+    
+    // load_config("config.conf");        // 先加载配置
+    // init_kvengine();                   // 再初始化引擎
+    // kvs_array_t *current = (kvs_array_t*)g_engine.impl;
+    // if (!current) { printf("引擎初始化失败\n"); return -1; }
+    // int ret = RDB_load(current);
+    // if (ret == 0) {
+    //     LOG_INFO("RDB 加载成功，条目数：%d\n", current->total);
+    //     // 可打印第一条记录验证
+    // } else {
+    //     LOG_ERROR("RDB 加载失败\n");
+    // }
    
-    if(!current)
-    {
-        LOG_ERROR("current create fail\n");
-        return -1;
-    }
+    // if(!current)
+    // {
+    //     LOG_ERROR("current create fail\n");
+    //     return -1;
+    // }
 
-    RDB_load(current);
+    // int klen,vlen;
+    // char *key = malloc(24);
+    // char *val = malloc(24);
+    
+    // key = current->table[0].key.data;
+    // val = current->table[0].value.data;
 
-    LOG_DEBUG("klen:%#x,kdata:%#x,vlen:%#x,vdata:%#x\n",current->table[0].key.len,current->table[0].key.data,current->table[0].value.len,current->table[0].value.data);
+    // for(int i = 0; i < current->total; i++) 
+    // {
+    //     LOG_DEBUG("klen:%d,kdata:%s,vlen:%d,vdata:%s\n",current->table[i].key.len,current->table[i].key.data,current->table[i].value.len,current->table[i].value.data);
+    // }
+    // free(key);
+    // free(val);
 
 #endif
 	// char packet[128] = {0};

@@ -13,8 +13,9 @@ typedef enum {
 } kvs_proto_cmd_t;
 
 typedef enum {
-    ADMIN_CMD_SAVE = 0,
-    ADMIN_CMD_COUNT =1
+    ADMIN_CMD_SAVE = 0,     //同步阻塞进行写入
+    ADMIN_CMD_BGSAVE =1,    //异步后台进行写入
+    ADMIN_CMD_COUNT =2
 }kvs_admin_cmd_t;
 
 

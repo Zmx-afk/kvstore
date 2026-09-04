@@ -8,7 +8,9 @@
 #include "../engine/kvs_hash.h"
 #include "../utils/log.h"
 
-int RDB();
+
+int RDB_sync();
+int RDB_async();
 
 int RDB_load(kvs_array_t *inst);
 
