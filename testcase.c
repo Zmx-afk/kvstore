@@ -59,7 +59,7 @@ void testcase(int connfd, char *msg, char *pattern, char *casename) {
 	if (strcmp(result, pattern) == 0) {
 		//printf("==> PASS ->  %s\n", casename);
 	} else {
-		printf("==> FAILED -> %s, '%s' != '%s' \n", casename, result, pattern);
+		LOG_ERROR("==> FAILED -> %s, '%s' != '%s' \n", casename, result, pattern);
 		exit(1);
 	}
 

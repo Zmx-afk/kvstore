@@ -96,14 +96,14 @@ static void rdb_write_eof(int fd)
 static void rdb_entry_callback(void *arg,kvs_blob_t *key,kvs_blob_t *val,uint64_t expire_ms)
 {
     int fd = *(int*)arg;
-    LOG_INFO("[rdb callback] key len:%d\n", key->len);
+    LOG_DEBUG("[rdb callback] key len:%d\n", key->len);
     rdb_write_kv(fd,key,val,expire_ms);
 }
 
 int rdb_do_dump(kvs_array_t *inst,const char *tmp_path, const char *real_path)
 {
 
-    LOG_INFO("[rdb] inst=%p, array size=%d\n", inst, inst->total);
+    LOG_DEBUG("[rdb] inst=%p, array size=%d\n", inst, inst->total);
 
     //1.创建临时文件
     int fd = open(tmp_path,O_RDWR | O_CREAT | O_TRUNC,0644);
@@ -187,7 +187,7 @@ int RDB_sync()
 }
 
 /*
-RDB
+RDB_async
 create a new process it will take a photo to main process's data
 */
 int RDB_async()
@@ -325,8 +325,10 @@ int RDB_load(kvs_array_t *inst)
 
 }
 
-//=============================================================================================
-
+/*=============================================================================================
+  =============================================================================================
+  ==============================================================================================
+*/
 //AOF
 int AOF(const char *msg)
 {
@@ -335,7 +337,7 @@ int AOF(const char *msg)
 */
 #if AOF_ALWAYS
     if(!msg) return -1;
-    FILE *fp = fopen("kv.txt", "a");
+    FILE *fp = fopen("AOF.aof", "a");
     if(!fp) return -1;
     if(fputs(msg, fp) == EOF)
     {
@@ -368,10 +370,10 @@ int AOF_rewrite()
 
 void AOF_restore()
 {
-    FILE* fp = fopen("kv.txt","r");
+    FILE* fp = fopen("AOF.aof","r");
     if(fp == NULL)
     {
-        perror("kv.txt不存在\n");
+        perror("AOF.aof不存在\n");
         return;
     }
 

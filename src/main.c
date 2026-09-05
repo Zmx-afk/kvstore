@@ -6,7 +6,7 @@
 #include "include/kvstore.h"
 #include "utils/timer.h"
 #include "include/config.h"
-
+#include "utils/log.h"
 
 
 
@@ -32,6 +32,7 @@ int main(int argc, char *argv[]) {
     } else {
         g_role = ROLE_MASTER;
     }
+    log_set_level(g_config.loglevel);
 
 	init_kvengine();
     if (init_kvengine() != 0) 

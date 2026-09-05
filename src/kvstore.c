@@ -377,6 +377,18 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
             //assert(0);
 	    }
 
+//AOF持久化使用
+        if(g_config.aof_fsync==AOF_ALWAYS)
+        {
+            //持久化
+            char aof_buf[BUFFER_LENGTH] ={0};
+            memcpy(aof_buf, msg, strlen(msg));
+
+            LOG_DEBUG("aof_buf:%s\n", aof_buf);
+
+            AOF(aof_buf);
+
+        }
     }
 
 
@@ -405,34 +417,7 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
 	
 
 
-#if 0
-    //持久化
-    char aof_buf[BUFFER_LENGTH] ={0};
-    char key_buf[BUFFER_LENGTH] = {0};
-    memcpy(key_buf, key_data, key_len);
 
-    if (val_data != NULL) 
-    {
-        char val_buf[BUFFER_LENGTH] = {0};
-        memcpy(val_buf, val_data, val_len);
-        sprintf(aof_buf, "%s %s %s", cmd_buf, key_buf, val_buf);
-    } 
-    else
-    {
-        sprintf(aof_buf, "%s %s", cmd_buf, key_buf);
-    }
-    printf("aof_buf:%s\n", aof_buf);
-    AOF(aof_buf);
-
-    int total_cmd_len = 4 + cmd_len + 4 + key_len;
-    if(val_data != NULL) {
-        total_cmd_len += 4 + val_len;
-    }
-    // 主节点执行写命令，同步到从节点
-    if (g_role == ROLE_MASTER && is_write_cmd(cmd)) {
-        master_sync(msg, total_cmd_len);
-    }
-#endif
 
 	return ret_len;
 

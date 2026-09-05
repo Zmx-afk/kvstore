@@ -1,20 +1,27 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <sys/types.h>
 #define MAX_IP_LEN 64
 #define MAX_LINE_LEN 256
 
 #include <stdio.h>  // 需要 printf
+#include <stdint.h>
 
 
-
+typedef enum {
+    AOF_ALWAYS = 0,
+    AOF_EVERYSEC=1,
+} AOF_FSYNC;
 
 typedef struct{
     char ip[MAX_IP_LEN];
     int port;
     char role[16];
     char engine[16];
+    uint8_t loglevel;
     char persistence[16];
+    uint8_t aof_fsync;
 }ServerConfig;
 
 
