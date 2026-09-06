@@ -108,8 +108,8 @@ void AOF_restore();
 
 typedef enum 
 {
-    ROLE_MASTER,  
-    ROLE_SLAVE    
+    ROLE_MASTER = 0,  
+    ROLE_SLAVE = 1,    
 } NodeRole;
 
 extern NodeRole g_role;

@@ -74,7 +74,7 @@ int load_config(const char *filename) {
                 LOG_ERROR("Invalid role: %s, defaulting to master\n", val);
                 g_config.role = ROLE_MASTER; // 默认值
             }
-            LOG_DEBUG("role读取成功:%s\n",g_config.role);
+            LOG_DEBUG("role读取成功:%d\n",g_config.role);
         } 
         else if (strcmp(key, "engine") == 0) 
         {

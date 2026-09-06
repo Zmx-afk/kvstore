@@ -28,6 +28,7 @@
 #define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
 // extern ServerConfig g_config;
+extern void send_rdb_to_slave(int slave_fd);
 
 static int g_epfd = -1;   // 供定时器使用
 
@@ -312,10 +313,14 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
             }
             case ADMIN_CMD_SYNC:
             {
-                LOG_INFO("收到 SYNC 命令，当前连接将标记为从节点！");
-                // 注意：这里不要关闭连接，后续要发 RDB 和转发命令
-                // 通过 is_sync 输出参数通知 reactor.c 标记当前 fd
-                *is_sync = 1;   // 假设你按上一轮方案加了输出参数
+                LOG_INFO("收到 SYNC 命令，当前连接将标记为从节点！");                
+                *is_sync = 1;
+
+                RDB_sync();
+
+                send_rdb_to_slave(g_slave_fd);
+                LOG_INFO("RDB数据已发送给从节点!");
+
                 ret_len = sprintf(response, "+OK\r\n");
                 break;
             }

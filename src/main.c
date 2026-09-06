@@ -14,9 +14,20 @@
 /*
     argv[0] = ./kvstore argv[1] = port argv[2] = master/slave
 */
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[]) 
+{
+    const char *config_file = "config.conf";
+    if(argc > 1) 
+    {
+        if(strcmp(argv[1], "1") == 0) 
+        {
+            config_file = "config_slave.conf";
+        } 
+    }
+    LOG_INFO("argv[0]: %s,argv[1]: %s\n", argv[0], argv[1]);
+    LOG_INFO("使用配置文件: %s\n", config_file);
 	// 加载配置文件
-    if (load_config("config.conf") != 0) {
+    if (load_config(config_file) != 0) {
         LOG_ERROR("加载配置文件失败，使用默认配置\n");
         return -1;
     }
@@ -64,7 +75,9 @@ int main(int argc, char *argv[]) {
         pthread_detach(tid);
     }
 
-    if (g_config.role == ROLE_SLAVE) {
+    if (g_config.role == ROLE_SLAVE) 
+    {   
+        LOG_DEBUG("调用slave_run\n");
         pthread_t tid;
         pthread_create(&tid, NULL, (void*)slave_run, NULL);
         pthread_detach(tid);

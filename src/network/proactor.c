@@ -1,6 +1,7 @@
 
 
-#include "kvstore.h"
+#include "../include/config.h"
+#include "../include/kvstore.h"
 #include <stdio.h>
 #include <liburing.h>
 #include <netinet/in.h>
@@ -12,7 +13,7 @@
 #define EVENT_READ		1
 #define EVENT_WRITE		2
 
-extern int kvs_protocol(char *msg, int length, char *response);
+extern int kvs_protocol(char *msg, int length, char *response,int *is_sync);
 
 
 
@@ -95,7 +96,7 @@ int set_event_accept(struct io_uring *ring, int sockfd, struct sockaddr *addr,
 }
 
 
-typedef int (*msg_handler)(char *msg, int length, char *response);
+typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync);
 static msg_handler kvs_handler;
 
 
@@ -166,7 +167,7 @@ int proactor_start(unsigned short port, msg_handler handler) {
 				} else if (ret > 0) {
 					
 					//int kvs_protocol(char *msg, int length, char *response);
-					ret = kvs_handler(buffer, ret, response);
+					ret = kvs_handler(buffer, ret, response,&g_is_sync);
 					
 					set_event_send(&ring, result.fd, response, ret, 0);
 				}
