@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "include/config.h"
+#include "include/kvstore.h"
 #include "utils/log.h"
 
 ServerConfig g_config = {0};  // 全局配置变量
@@ -60,8 +61,20 @@ int load_config(const char *filename) {
         } 
         else if (strcmp(key, "role") == 0) 
         {
-            strncpy(g_config.role, val, sizeof(g_config.role) - 1);
-            LOG_DEBUG("role读取成功\n");
+            if(strcmp(val, "master") == 0) 
+            {
+                g_config.role = ROLE_MASTER;
+            } 
+            else if(strcmp(val, "slave") == 0) 
+            {
+                g_config.role = ROLE_SLAVE;
+            } 
+            else
+            {
+                LOG_ERROR("Invalid role: %s, defaulting to master\n", val);
+                g_config.role = ROLE_MASTER; // 默认值
+            }
+            LOG_DEBUG("role读取成功:%s\n",g_config.role);
         } 
         else if (strcmp(key, "engine") == 0) 
         {
@@ -100,11 +113,13 @@ int load_config(const char *filename) {
             g_config.persistence[sizeof(g_config.persistence)-1] = '\0';
             LOG_DEBUG("persistence读取成功:%s\n",g_config.persistence);
         } 
-        //else if (strcmp(key, "master_ip") == 0) {
-        //     strncpy(g_config.master_ip, val, MAX_IP_LEN - 1);
-        // } else if (strcmp(key, "master_port") == 0) {
-        //     g_config.master_port = atoi(val);
-        // }
+        else if (strcmp(key, "master_ip") == 0) 
+        {
+            strncpy(g_config.master_ip, val, MAX_IP_LEN - 1);
+        } else if (strcmp(key, "master_port") == 0) 
+        {
+            g_config.master_port = atoi(val);
+        }
         else if (strcmp(key, "aof_fsync") == 0) 
         {
             if(strcmp(val, "always") == 0) {

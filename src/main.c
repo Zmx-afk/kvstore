@@ -8,8 +8,8 @@
 #include "include/config.h"
 #include "utils/log.h"
 
-
-
+#include "engine/kvs_array.h"
+#include "persist/persistence.h"
 
 /*
     argv[0] = ./kvstore argv[1] = port argv[2] = master/slave
@@ -17,49 +17,59 @@
 int main(int argc, char *argv[]) {
 	// 加载配置文件
     if (load_config("config.conf") != 0) {
-        printf("加载配置文件失败，使用默认配置\n");
+        LOG_ERROR("加载配置文件失败，使用默认配置\n");
         return -1;
-        // // 你可以设置默认值
-        // g_config.port = 2000;
-        // strcpy(g_config.role, "master");
-        // strcpy(g_config.ip, "0.0.0.0");
     }
 
-	// 用 g_config.port, g_config.role 等替换原来的硬编码
     int port = g_config.port;
-    if (strcmp(g_config.role, "slave") == 0) {
-        g_role = ROLE_SLAVE;
-    } else {
-        g_role = ROLE_MASTER;
-    }
+
     log_set_level(g_config.loglevel);
 
-	init_kvengine();
     if (init_kvengine() != 0) 
     {
-        printf("引擎初始化失败，退出\n");
+        LOG_ERROR("引擎初始化失败，退出\n");
         return -1;
     }
     
     
-    //AOF_restore();
+    if(strcmp(g_config.persistence,"aof")==0)
+    {
+        AOF_restore();
+    }
+    else if(strcmp(g_config.persistence,"rdb")==0)
+    {
+        kvs_array_t *current = (kvs_array_t*)g_engine.impl;
+        if (!current) 
+        { 
+            LOG_ERROR("引擎初始化失败\n"); 
+            return -1; 
+        }
+        int ret = RDB_load(current);
+        if (ret == 0) 
+        {
+            LOG_INFO("RDB 加载成功，条目数：%d\n", current->total);
+        } else 
+        {
+            LOG_ERROR("RDB 加载失败\n");
+        }
+    }
 	
     
-    timer_init();
+    //timer_init();
 
-    if (g_role == ROLE_MASTER) {
+    if (g_config.role == ROLE_MASTER) 
+    {
         pthread_t tid;
         pthread_create(&tid, NULL, master_accept_slave, NULL);
         pthread_detach(tid);
     }
 
-    if (g_role == ROLE_SLAVE) {
+    if (g_config.role == ROLE_SLAVE) {
         pthread_t tid;
         pthread_create(&tid, NULL, (void*)slave_run, NULL);
         pthread_detach(tid);
     }
 
-    printf("OK\n");
 #if (NETWORK_SELECT == NETWORK_REACTOR)
 	reactor_start(port, kvs_protocol);
 #elif (NETWORK_SELECT == NETWORK_PROACTOR)

@@ -59,7 +59,7 @@ extern kvs_engine_t g_engine;
 #define BUFFER_LENGTH		1024
 
 
-typedef int (*msg_handler)(char *msg, int length, char *response);
+typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync);
 
 
 extern int reactor_start(unsigned short port, msg_handler handler);
@@ -67,7 +67,7 @@ extern int proactor_start(unsigned short port, msg_handler handler);
 extern int ntyco_start(unsigned short port, msg_handler handler);
 
 //protocal
-int kvs_protocol(char *msg, int length, char *response);
+int kvs_protocol(char *msg, int length, char *response,int *is_sync);
 
 
 
@@ -88,6 +88,8 @@ struct sdshdr {
 
 
 
+
+
 //kvstore.c
 int init_kvengine();
 void dest_kvengine(void);
@@ -103,7 +105,9 @@ void AOF_restore();
 
 
 //MS_replication
-typedef enum {
+
+typedef enum 
+{
     ROLE_MASTER,  
     ROLE_SLAVE    
 } NodeRole;

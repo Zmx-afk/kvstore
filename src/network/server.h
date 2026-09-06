@@ -14,6 +14,10 @@
 
 typedef int (*RCALLBACK)(int fd);
 
+typedef enum {
+	CONN_TYPE_NORMAL = 0,
+	CONN_TYPE_REPLICATION = 1
+}ConnType;
 
 struct conn {
 	int fd;
@@ -32,6 +36,12 @@ struct conn {
 	} r_action;
 
 	int status;
+
+	/*
+		0.normal
+		1.replication
+	*/
+	int conn_type; 
 #if 1 // websocket
 	char *payload;
 	char mask[4];

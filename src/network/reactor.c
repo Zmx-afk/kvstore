@@ -14,6 +14,7 @@
 #include <sys/time.h>
 
 #include "../utils/timer.h"
+#include "../utils/log.h"
 
 #include "server.h"
 
@@ -28,14 +29,19 @@
 
 #if ENABLE_KVSTORE
 
-typedef int (*msg_handler)(char *msg, int length, char *response);
+typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync);
 
 static msg_handler kvs_handler;
 
 int kvs_request(struct conn *c) {
+	int is_sync = 0;
+	c->wlength = kvs_handler(c->rbuffer, c->rlength, c->wbuffer,&is_sync);
 
-	c->wlength = kvs_handler(c->rbuffer, c->rlength, c->wbuffer);
-
+	if(is_sync) 
+	{
+		c->conn_type = CONN_TYPE_REPLICATION;
+		LOG_INFO("当前连接已标记为从节点,conn_type=%d\n", c->conn_type);
+	}
 	return 0;
 
 }

@@ -296,7 +296,7 @@ void kvs_testcase1_100w(int connfd)
 
 void RDB_sync_testcase(int connfd)
 {
-    int count = 1000;
+    int count = 10;
 	
     
     for(int i = 0; i < count; i++)

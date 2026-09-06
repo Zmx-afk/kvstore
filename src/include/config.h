@@ -17,10 +17,14 @@ typedef enum {
 typedef struct{
     char ip[MAX_IP_LEN];
     int port;
-    char role[16];
+    
+    // 0: master, 1: slave
+    uint8_t role; 
     char engine[16];
     uint8_t loglevel;
     char persistence[16];
+    char master_ip[MAX_IP_LEN];
+    int master_port;
     uint8_t aof_fsync;
 }ServerConfig;
 

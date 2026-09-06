@@ -257,7 +257,7 @@ int is_write_cmd(int cmd) {
     resp协议
 */
 
-int kvs_filter_protocol(char *msg, int length, char *response) {
+int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
     if (msg == NULL || length < PROTO_MIN_LEN || response == NULL) return -1;
 
     kvs_blob_t cmd_blob = {0};
@@ -271,6 +271,7 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
 
 
     int admin_cmd = -1;
+    int cmd;
     //第一步优先匹配管理命令
     for(int i=0;i<ADMIN_CMD_COUNT;i++)
     {
@@ -280,7 +281,7 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
             break;
         }
     }
-
+    //处理管理命令 没有则处理普通命令
     if(admin_cmd != -1)
     {
         LOG_DEBUG("admin_cmd:%s\n",admin_command[admin_cmd]);
@@ -309,6 +310,15 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
                 LOG_DEBUG("RDB_async调用成功\n");
                 break;
             }
+            case ADMIN_CMD_SYNC:
+            {
+                LOG_INFO("收到 SYNC 命令，当前连接将标记为从节点！");
+                // 注意：这里不要关闭连接，后续要发 RDB 和转发命令
+                // 通过 is_sync 输出参数通知 reactor.c 标记当前 fd
+                *is_sync = 1;   // 假设你按上一轮方案加了输出参数
+                ret_len = sprintf(response, "+OK\r\n");
+                break;
+            }
             default:
                 ret_len = sprintf(response,"-ERR unknown admin cmd\r\n");
         }
@@ -316,8 +326,6 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
     }
     else
     {
-        //用整形代表cmd
-        int cmd;
         for (cmd = PROTO_CMD_SET; cmd < PROTO_CMD_COUNT; cmd++) {
             if (strlen(kv_command[cmd]) == cmd_blob.len &&
                 strncmp(cmd_blob.data, kv_command[cmd], cmd_blob.len) == 0) {
@@ -328,6 +336,7 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
         switch (cmd) 
         {
             case PROTO_CMD_SET:
+                //LOG_DEBUG(">>> SET command executed!\n");
                 ret = kvs_set(&key_blob, &val_blob);
                 if (ret < 0) {
                     ret_len = sprintf(response, "-ERR internal error\r\n");
@@ -377,26 +386,31 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
             //assert(0);
 	    }
 
-//AOF持久化使用
+
+
+        
+    }
+
+    //AOF持久化使用
         if(g_config.aof_fsync==AOF_ALWAYS)
         {
             //持久化
             char aof_buf[BUFFER_LENGTH] ={0};
-            memcpy(aof_buf, msg, strlen(msg));
-
-            LOG_DEBUG("aof_buf:%s\n", aof_buf);
+            if(admin_cmd != -1)
+            {
+                snprintf(aof_buf,sizeof(aof_buf),"%.*s\r\n",cmd_blob.len, cmd_blob.data);
+            }
+            else 
+            {
+                snprintf(aof_buf,sizeof(aof_buf),"%.*s %.*s %.*s\r\n",cmd_blob.len, cmd_blob.data,key_blob.len, key_blob.data,val_blob.len, val_blob.data);
+            }
+            LOG_DEBUG("AOF持久化被调用");
+            LOG_DEBUG("aof_buf:%s", aof_buf);
 
             AOF(aof_buf);
-
         }
-    }
-
-
   
-    // if (cmd == PROTO_CMD_COUNT) {
-    //     ret_len = sprintf(response, "-ERR unknown command\r\n");
-    //     return ret_len;
-    // }
+
 
     
 
@@ -435,11 +449,11 @@ int kvs_filter_protocol(char *msg, int length, char *response) {
  * @return : length of response
  */
 
-int kvs_protocol(char *msg, int length, char *response) 
+int kvs_protocol(char *msg, int length, char *response,int *is_sync) 
 { 
 	if (msg == NULL || length <= 0 || response == NULL) return -1;
     
-    return kvs_filter_protocol(msg,length, response);
+    return kvs_filter_protocol(msg,length, response,is_sync);
 }
 
 

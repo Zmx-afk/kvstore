@@ -11,19 +11,28 @@ const char *admin_command[] = {
     "SAVE","BGSAVE","FLUSHALL"
 };
 
-
-int handle_cmd(char* cmd)//cmd是SET或者GET就返回1 未完成
+/*
+cmd是admin指令就返回-1
+cmd是普通指令且是SET或者GET就返回1 未完成
+*/
+int handle_cmd(char* cmd)
 {
-    if(!strcmp(cmd, "SET")||!strcmp(cmd, "MOD")||!strcmp(cmd, "RSET")||!strcmp(cmd, "RMOD")||!strcmp(cmd, "HSET")||!strcmp(cmd, "HMOD"))
+    if(!strcmp(cmd, "SAVE")||!strcmp(cmd, "BGSAVE")||!strcmp(cmd, "FLUSHALL"))
+    {
+        return -1;
+    }
+    else if(!strcmp(cmd, "SET")||!strcmp(cmd, "MOD")||!strcmp(cmd, "RSET")||!strcmp(cmd, "RMOD")||!strcmp(cmd, "HSET")||!strcmp(cmd, "HMOD"))
     {
         return 1;
     }
-    else {
+    else 
+    {
         return 0;
     }
 }
 
-/*客户端发送的数据打包成resp协议格式
+/*
+客户端发送的数据打包成resp协议格式
 
 */
 int client_encode_resp(char *line,char *packet)
@@ -35,7 +44,7 @@ int client_encode_resp(char *line,char *packet)
     //跳过空格和制表符
     while(*p==' '||*p =='\t') p++;
 
-    //解析cmd
+    //编码cmd
     char *cmd = p;
     while(*p!= ' '&&*p != '\n'&&*p!= '\0') p++;
     int cmd_len = p-cmd;
@@ -44,7 +53,12 @@ int client_encode_resp(char *line,char *packet)
     flag = handle_cmd(cmd_buf);
     p++;
 
-    //解析key
+    //解析key(admin指令则不用编码key)
+    if(flag == -1)
+    {
+        sprintf(packet,"*1\r\n$%d\r\n%s\r\n",cmd_len,cmd_buf);
+        return 0;
+    }
     char *key = p;
     while(*p!= ' '&&*p != '\n'&&*p!= '\0') p++;
     int key_len = p-key;
@@ -63,7 +77,7 @@ int client_encode_resp(char *line,char *packet)
     current += sprintf(current, "$%d\r\n%s\r\n",cmd_len,cmd_buf);
     current += sprintf(current, "$%d\r\n%s\r\n",key_len,key_data);
 
-    //解析val(如果有)
+    //编码val(如果有)
     if(flag)
     {
         p++;
@@ -75,14 +89,14 @@ int client_encode_resp(char *line,char *packet)
 
         current += sprintf(current, "$%d\r\n%s\r\n",val_len,val_data);
     }
-
-    //printf("packet:%s\n",packet);
-
     return 0;
 
 }
 
-//服务端接收到的数据解码成原先格式
+/*
+服务端接收到的数据解码成原先格式
+return 0表示成功解码，返回1表示解码admin cmd，返回-1表示解码失败
+*/
 int server_decode_resp(char *msg,kvs_blob_t *cmd_blob,kvs_blob_t *key_blob,kvs_blob_t *val_blob)
 {
     if (!msg || !cmd_blob || !key_blob || !val_blob) return -1;
@@ -108,6 +122,11 @@ int server_decode_resp(char *msg,kvs_blob_t *cmd_blob,kvs_blob_t *key_blob,kvs_b
     while (*p == '\r' || *p == '\n') p++;  // 跳过数据后的 \r\n
     cmd_blob->data = cmd_start;
     cmd_blob->len = cmd_len;
+
+    if(data_num == 1)
+    {
+        return 1;
+    }
 
     // 3. 解析 key（第二个 Bulk String）
     if (*p != '$') return -1;

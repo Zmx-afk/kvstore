@@ -96,14 +96,14 @@ static void rdb_write_eof(int fd)
 static void rdb_entry_callback(void *arg,kvs_blob_t *key,kvs_blob_t *val,uint64_t expire_ms)
 {
     int fd = *(int*)arg;
-    LOG_DEBUG("[rdb callback] key len:%d\n", key->len);
+    //LOG_DEBUG("[rdb callback] key len:%d\n", key->len);
     rdb_write_kv(fd,key,val,expire_ms);
 }
 
 int rdb_do_dump(kvs_array_t *inst,const char *tmp_path, const char *real_path)
 {
 
-    LOG_DEBUG("[rdb] inst=%p, array size=%d\n", inst, inst->total);
+    //LOG_DEBUG("[rdb] inst=%p, array size=%d\n", inst, inst->total);
 
     //1.创建临时文件
     int fd = open(tmp_path,O_RDWR | O_CREAT | O_TRUNC,0644);
@@ -335,7 +335,7 @@ int AOF(const char *msg)
 /*
     use aof_always stragety
 */
-#if AOF_ALWAYS
+
     if(!msg) return -1;
     FILE *fp = fopen("AOF.aof", "a");
     if(!fp) return -1;
@@ -357,8 +357,6 @@ int AOF(const char *msg)
 
     fclose(fp);
     return 0;
-#endif
-
 }
 
 int AOF_rewrite()
@@ -395,35 +393,19 @@ void AOF_restore()
 
         kvs_blob_t key_blob = {.data = key,.len = strlen(key)};
         kvs_blob_t val_blob = {.data = val,.len = strlen(val)};
-/*
-        #if ENABLE_ARRAY
-        if (strcmp(cmd, "SET") == 0) {
-            kvs_array_set(&global_array, &key_blob, &val_blob);
-        } else if (strcmp(cmd, "MOD") == 0) {
-            kvs_array_mod(&global_array, &key_blob, &val_blob);
-        }
-        #endif
 
-        #if ENABLE_RBTREE
-        if (strcmp(cmd, "RSET") == 0) {
-            kvs_rbtree_set(&global_rbtree, &key_blob, &val_blob);
-        } else if (strcmp(cmd, "RMOD") == 0) {
-            kvs_rbtree_mod(&global_rbtree, &key_blob, &val_blob);
+        if(strcmp(cmd,"SET")==0)
+        {
+            g_engine.set(g_engine.impl,&key_blob,&val_blob);
         }
-        #endif
-
-        #if ENABLE_HASH
-        if (strcmp(cmd, "HSET") == 0) {
-            kvs_hash_set(&global_hash, &key_blob, &val_blob);
-        } else if (strcmp(cmd, "HMOD") == 0) {
-            kvs_hash_mod(&global_hash, &key_blob, &val_blob);
+        else if(strcmp(cmd,"MOD")==0)
+        {
+            g_engine.mod(g_engine.impl,&key_blob,&val_blob);
         }
-        #endif
-    }
-
-    fclose(fp);
-    printf("AOF_restore success\n");
-*/
+        else if(strcmp(cmd,"DEL")==0)
+        {
+            g_engine.del(g_engine.impl,&key_blob);
+        }
     }
 
 }

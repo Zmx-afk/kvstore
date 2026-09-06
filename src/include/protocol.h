@@ -15,8 +15,10 @@ typedef enum {
 typedef enum {
     ADMIN_CMD_SAVE = 0,     //同步阻塞进行写入
     ADMIN_CMD_BGSAVE =1,    //异步后台进行写入
-    ADMIN_CMD_COUNT =2
+    ADMIN_CMD_SYNC = 2,
+    ADMIN_CMD_COUNT = 3
 }kvs_admin_cmd_t;
+
 
 
 int handle_cmd(char* cmd);
