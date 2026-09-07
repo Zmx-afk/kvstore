@@ -120,8 +120,15 @@ int send_rdb_to_slave(int slave_fd)
 
 void master_sync(char *data, int len) {
     if (g_role == ROLE_MASTER && g_slave_fd > 0) {
-        send(g_slave_fd, data, len, 0);
-        LOG_INFO("主节点同步命令到从节点\n");
+        int sent = send(g_slave_fd, data, len, 0);
+        if (sent != len) {
+            LOG_ERROR("主节点同步命令失败，预期 %d 字节，实际 %d 字节,fd=%d\n", len, sent, g_slave_fd);
+            // 断开连接，避免继续使用无效 fd
+            close(g_slave_fd);
+            g_slave_fd = -1;
+        } else {
+            LOG_DEBUG("主节点同步命令成功，发送 %d 字节\n", len);
+        }
     }
 }
 
@@ -155,6 +162,7 @@ void slave_run()
         LOG_ERROR("接收 RDB 长度失败\n");
         return;
     }
+    LOG_INFO("接收到 RDB 文件长度: %u 字节\n", ntohl(net_size));
     uint32_t file_size = ntohl(net_size);
 
     //循环接收数据 写入临时rdb文件

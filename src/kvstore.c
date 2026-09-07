@@ -350,6 +350,10 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 } else {
                     ret_len = sprintf(response, ":0\r\n");
                 }
+                if (g_role == ROLE_MASTER && g_slave_fd > 0) 
+                {
+                    master_sync(msg, length);
+                }
                 break;
 
             case PROTO_CMD_GET: {
@@ -368,6 +372,10 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                     ret_len = sprintf(response, ":1\r\n");
                 else
                     ret_len = sprintf(response, ":0\r\n");
+                if (g_role == ROLE_MASTER && g_slave_fd > 0) 
+                {
+                    master_sync(msg, length);
+                }
                 break;
 
             case PROTO_CMD_MOD:
@@ -376,6 +384,10 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                     ret_len = sprintf(response, "+OK\r\n");
                 else
                     ret_len = sprintf(response, "-ERR key not exist\r\n");
+                if (g_role == ROLE_MASTER && g_slave_fd > 0) 
+                {
+                    master_sync(msg, length);
+                }
                 break;
 
             case PROTO_CMD_EXIST:

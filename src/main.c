@@ -43,12 +43,12 @@ int main(int argc, char *argv[])
     }
     
     
-    if(g_config.aof_strategy == AOF_ALWAYS || g_config.aof_strategy == AOF_EVERYSEC)
+    if(g_config.role == ROLE_MASTER && (g_config.aof_strategy == AOF_ALWAYS || g_config.aof_strategy == AOF_EVERYSEC))
     {
         AOF_restore();
         LOG_INFO("AOF 恢复完成\n");
     }
-    else if(g_config.rdb_enable == 1)
+    else if(g_config.role== ROLE_MASTER && g_config.rdb_enable == 1)
     {
         kvs_array_t *current = (kvs_array_t*)g_engine.impl;
         if (!current) 

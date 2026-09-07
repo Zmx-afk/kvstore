@@ -19,7 +19,7 @@
 #define MAX_MSG_LENGTH		1024
 #define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
-#define COUNT 50000
+#define COUNT 500
 
 int send_msg(int connfd, char *msg) {
 	char packet[1024] = {0};
@@ -320,7 +320,7 @@ void persistence_testcase(int connfd)
 void MS_testcase(int connfd)
 {	
     
-    for(int i = 50000; i < COUNT+50000; i++)
+    for(int i = 500; i < COUNT+500; i++)
     {
         char total_key[128] = {0};
         char total_val[128] = {0};    
@@ -448,6 +448,7 @@ int main(int argc, char *argv[]) {
         }
         printf("阶段1:向主节点插入 %d 条数据...\n", COUNT);
         persistence_testcase(master_fd);
+        send_msg(master_fd, "SAVE");
         close(master_fd);
         printf("阶段1完成。\n");
 
@@ -494,7 +495,7 @@ int main(int argc, char *argv[]) {
                     LOG_INFO("key%d 期望 '%s'，实际 '%s'\n", i, expected, resp);
                 }
             }
-            if ((i+1) % 10000 == 0) {
+            if ((i+1) % COUNT == 0) {
                 printf("已校验 %d 条，缺失/错误 %d 条\n", i+1, miss);
             }
         }

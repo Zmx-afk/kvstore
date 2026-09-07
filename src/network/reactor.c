@@ -40,7 +40,10 @@ int kvs_request(struct conn *c) {
 	if(is_sync) 
 	{
 		c->conn_type = CONN_TYPE_REPLICATION;
+		extern int g_slave_fd;
+        g_slave_fd = c->fd;
 		LOG_INFO("当前连接已标记为从节点,conn_type=%d\n", c->conn_type);
+		LOG_INFO("从节点连接已注册，fd=%d\n", g_slave_fd);
 	}
 	return 0;
 
