@@ -397,7 +397,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
     }
 
     //AOF持久化使用
-        if(g_config.aof_fsync==AOF_ALWAYS)
+        if(g_config.role == ROLE_MASTER && g_config.aof_strategy == AOF_ALWAYS)
         {
             //持久化
             char aof_buf[BUFFER_LENGTH] ={0};

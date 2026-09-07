@@ -43,11 +43,12 @@ int main(int argc, char *argv[])
     }
     
     
-    if(strcmp(g_config.persistence,"aof")==0)
+    if(g_config.aof_strategy == AOF_ALWAYS || g_config.aof_strategy == AOF_EVERYSEC)
     {
         AOF_restore();
+        LOG_INFO("AOF 恢复完成\n");
     }
-    else if(strcmp(g_config.persistence,"rdb")==0)
+    else if(g_config.rdb_enable == 1)
     {
         kvs_array_t *current = (kvs_array_t*)g_engine.impl;
         if (!current) 
@@ -59,21 +60,21 @@ int main(int argc, char *argv[])
         if (ret == 0) 
         {
             LOG_INFO("RDB 加载成功，条目数：%d\n", current->total);
+            int count = 0;
+            while(current->total > 0&& count < current->total) 
+            {
+                LOG_DEBUG("key: %.*s, value: %.*s\n", current->table[count].key.len, (char*)current->table[count].key.data, current->table[count].value.len, (char*)current->table[count].value.data);
+                count++;
+            }
         } else 
         {
-            LOG_ERROR("RDB 加载失败\n");
+            LOG_ERROR("RDB 加载失败");
         }
     }
 	
     
     //timer_init();
 
-    if (g_config.role == ROLE_MASTER) 
-    {
-        pthread_t tid;
-        pthread_create(&tid, NULL, master_accept_slave, NULL);
-        pthread_detach(tid);
-    }
 
     if (g_config.role == ROLE_SLAVE) 
     {   

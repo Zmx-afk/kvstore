@@ -103,7 +103,7 @@ static void rdb_entry_callback(void *arg,kvs_blob_t *key,kvs_blob_t *val,uint64_
 int rdb_do_dump(kvs_array_t *inst,const char *tmp_path, const char *real_path)
 {
 
-    //LOG_DEBUG("[rdb] inst=%p, array size=%d\n", inst, inst->total);
+    LOG_DEBUG("【RDB调试】rdb_do_dump被调用,引擎内总条目数: %d\n", inst->total);
 
     //1.创建临时文件
     int fd = open(tmp_path,O_RDWR | O_CREAT | O_TRUNC,0644);
@@ -158,6 +158,7 @@ int RDB_realize()
     kvs_array_t *current = (kvs_array_t*)g_engine.impl;
 
     rdb_do_dump(current,tmp_name, real_name);
+    LOG_DEBUG("rdb_do_dump被调用");
 
 #elif ENABLE_RBTREE
     kvs_rbtree_t *current = (kvs_rbtree_t*)g_engine.impl;
@@ -254,6 +255,7 @@ int RDB_load(kvs_array_t *inst)
     
     LOG_DEBUG("RDB版本:%u\n",ver);
 
+    int count = 0;
     //3.循环读取kv键值对
     while(1)
     {
@@ -319,6 +321,8 @@ int RDB_load(kvs_array_t *inst)
         free(key_buf);
         free(val_buf);
 
+        count++;
+        LOG_DEBUG("加载完成第%d条数据\n",count);
     }
     close(fd);
     return 0;
@@ -366,16 +370,18 @@ int AOF_rewrite()
     return 0;
 }
 
-void AOF_restore()
+int AOF_restore()
 {
     FILE* fp = fopen("AOF.aof","r");
     if(fp == NULL)
     {
         perror("AOF.aof不存在\n");
-        return;
+        return -1;
     }
 
     char line[BUFFER_LENGTH]={0};
+
+    int count = 0;
     while(fgets(line,sizeof(line), fp)!=NULL)
     {
         //去掉换行符 为sscanf函数做准备
@@ -406,6 +412,9 @@ void AOF_restore()
         {
             g_engine.del(g_engine.impl,&key_blob);
         }
+        count++;
     }
 
+    LOG_INFO("AOF恢复完成,共恢复%d条数据\n",count);
+    return 0;
 }

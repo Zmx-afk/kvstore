@@ -11,7 +11,8 @@
 
 typedef enum {
     AOF_ALWAYS = 0,
-    AOF_EVERYSEC=1,
+    AOF_EVERYSEC = 1,
+    AOF_NO = 2
 } AOF_FSYNC;
 
 typedef struct{
@@ -22,10 +23,12 @@ typedef struct{
     uint8_t role; 
     char engine[16];
     uint8_t loglevel;
-    char persistence[16];
+    // 0: disable, 1: enable
+    uint8_t rdb_enable; 
+    // 0: always, 1: everysec 2: no
+    uint8_t aof_strategy; 
     char master_ip[MAX_IP_LEN];
     int master_port;
-    uint8_t aof_fsync;
 }ServerConfig;
 
 

@@ -71,52 +71,52 @@ int send_rdb_to_slave(int slave_fd)
 }   
 
 
-void *master_accept_slave(void *arg) {
-    int master_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (master_fd < 0) {
-        perror("socket failed");
-        pthread_exit(NULL);
-    }
+// void *master_accept_slave(void *arg) {
+//     int master_fd = socket(AF_INET, SOCK_STREAM, 0);
+//     if (master_fd < 0) {
+//         perror("socket failed");
+//         pthread_exit(NULL);
+//     }
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr)); // 必须初始化，防止脏数据
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(2020); 
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+//     struct sockaddr_in addr;
+//     memset(&addr, 0, sizeof(addr)); // 必须初始化，防止脏数据
+//     addr.sin_family = AF_INET;
+//     addr.sin_port = htons(2020); 
+//     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    int reuse = 1;
-    if (setsockopt(master_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-        perror("setsockopt failed");
-        close(master_fd);
-        pthread_exit(NULL);
-    }
+//     int reuse = 1;
+//     if (setsockopt(master_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+//         perror("setsockopt failed");
+//         close(master_fd);
+//         pthread_exit(NULL);
+//     }
 
-    // 处理 bind 返回值，消除警告 + 防止继续执行
-    if (bind(master_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("bind failed");
-        close(master_fd);
-        pthread_exit(NULL);
-    }
+//     // 处理 bind 返回值，消除警告 + 防止继续执行
+//     if (bind(master_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+//         perror("bind failed");
+//         close(master_fd);
+//         pthread_exit(NULL);
+//     }
 
-    // 处理 listen 返回值
-    if (listen(master_fd, 1) < 0) {
-        perror("listen failed");
-        close(master_fd);
-        pthread_exit(NULL);
-    }
+//     // 处理 listen 返回值
+//     if (listen(master_fd, 1) < 0) {
+//         perror("listen failed");
+//         close(master_fd);
+//         pthread_exit(NULL);
+//     }
 
-    LOG_DEBUG("主节点等待从节点连接...\n");
-    g_slave_fd = accept(master_fd, NULL, NULL);
-    if (g_slave_fd < 0) {
-        perror("accept failed");
-        close(master_fd);
-        pthread_exit(NULL);
-    }
-    LOG_INFO("从节点已连接主节点!g_slave_fd=%d\n", g_slave_fd);
+//     LOG_DEBUG("主节点等待从节点连接...\n");
+//     g_slave_fd = accept(master_fd, NULL, NULL);
+//     if (g_slave_fd < 0) {
+//         perror("accept failed");
+//         close(master_fd);
+//         pthread_exit(NULL);
+//     }
+//     LOG_INFO("从节点已连接主节点!g_slave_fd=%d\n", g_slave_fd);
 
-    close(master_fd); // 监听 fd 用完可以关闭，不影响已建立的连接
-    return NULL;
-}
+//     close(master_fd); // 监听 fd 用完可以关闭，不影响已建立的连接
+//     return NULL;
+// }
 
 void master_sync(char *data, int len) {
     if (g_role == ROLE_MASTER && g_slave_fd > 0) {
@@ -177,6 +177,8 @@ void slave_run()
     }
     LOG_INFO("RDB 文件接收完成，大小: %u 字节\n", file_size);
 
+    g_engine.destroy(g_engine.impl);
+    g_engine.impl = g_engine.create();
     RDB_load((kvs_array_t*)g_engine.impl);
     
     //增量持久化部分
@@ -188,7 +190,9 @@ void slave_run()
         
         g_is_sync = 1;   // 关键！告诉业务层这是同步来的命令
         char response[1024] = {0};
-        kvs_protocol(cmd_buf, n, response,0);  // 执行命令
+
+        int sync_flag = 1;
+        kvs_protocol(cmd_buf, n, response,&sync_flag);  // 执行命令
         g_is_sync = 0;
     }
     

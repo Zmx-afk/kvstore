@@ -97,7 +97,7 @@ void dest_kvengine(void);
 
 //AOF
 int AOF(const char *msg);
-void AOF_restore();
+int AOF_restore();
 
 //RDB
 

@@ -105,13 +105,27 @@ int load_config(const char *filename) {
                 LOG_ERROR("Invalid loglevel: %s, defaulting to DEBUG\n", val);
                 g_config.loglevel = LOG_DEBUG;
             }
-            LOG_INFO("loglevel读取成功:%d\n", g_config.loglevel);
+            LOG_DEBUG("loglevel读取成功:%d\n", g_config.loglevel);
         }
-        else if (strcmp(key, "persistence") == 0) 
+        else if (strcmp(key, "rdb_enable") == 0) 
         {
-            strncpy(g_config.persistence, val, sizeof(g_config.persistence) - 1);
-            g_config.persistence[sizeof(g_config.persistence)-1] = '\0';
-            LOG_DEBUG("persistence读取成功:%s\n",g_config.persistence);
+            g_config.rdb_enable = atoi(val);
+            LOG_DEBUG("rdb_enable读取成功:%d\n", g_config.rdb_enable);
+        }
+        else if (strcmp(key, "aof_strategy") == 0) 
+        {
+            if(strcmp(val, "always") == 0) {
+                g_config.aof_strategy = AOF_ALWAYS;
+            } 
+            else if(strcmp(val, "everysec") == 0) {
+                g_config.aof_strategy = AOF_EVERYSEC;
+            }
+            else 
+            {
+                LOG_ERROR("Invalid value for aof_strategy: %s\n", val);
+                g_config.aof_strategy = AOF_ALWAYS; // 默认值
+            }
+            LOG_DEBUG("aof_strategy读取成功:%d\n", g_config.aof_strategy);
         } 
         else if (strcmp(key, "master_ip") == 0) 
         {
@@ -119,21 +133,6 @@ int load_config(const char *filename) {
         } else if (strcmp(key, "master_port") == 0) 
         {
             g_config.master_port = atoi(val);
-        }
-        else if (strcmp(key, "aof_fsync") == 0) 
-        {
-            if(strcmp(val, "always") == 0) {
-                g_config.aof_fsync = AOF_ALWAYS;
-            } 
-            else if(strcmp(val, "everysec") == 0) {
-                g_config.aof_fsync = AOF_EVERYSEC;
-            }
-            else 
-            {
-                LOG_ERROR("Invalid value for aof_fsync: %s\n", val);
-                g_config.aof_fsync = AOF_ALWAYS; // 默认值
-            }
-            LOG_DEBUG("aof_fsync读取成功:%d\n", g_config.aof_fsync);
         }
 
     }
