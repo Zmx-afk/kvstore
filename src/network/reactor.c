@@ -18,6 +18,7 @@
 
 #include "server.h"
 
+#include "../include/kvstore.h"
 
 #define CONNECTION_SIZE			65535 // 1024 * 1024
 
@@ -33,6 +34,8 @@ typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync);
 
 static msg_handler kvs_handler;
 
+extern int send_rdb_to_slave(int slave_fd);
+
 int kvs_request(struct conn *c) {
 	int is_sync = 0;
 	c->wlength = kvs_handler(c->rbuffer, c->rlength, c->wbuffer,&is_sync);
@@ -43,7 +46,13 @@ int kvs_request(struct conn *c) {
 		extern int g_slave_fd;
         g_slave_fd = c->fd;
 		LOG_INFO("当前连接已标记为从节点,conn_type=%d\n", c->conn_type);
-		LOG_INFO("从节点连接已注册，fd=%d\n", g_slave_fd);
+		LOG_INFO("从节点连接已注册,fd=%d\n", g_slave_fd);
+		if (send_rdb_to_slave(g_slave_fd) != 0) {
+			LOG_ERROR("RDB数据发送失败,fd=%d\n", g_slave_fd);
+		}
+		else {
+			LOG_INFO("RDB数据已发送给从节点!\n");
+		}
 	}
 	return 0;
 
@@ -170,7 +179,6 @@ int recv_cb(int fd) {
 		return 0;
 	}
 
-	
 	conn_list[fd].rlength = count;
 	//printf("RECV: %s\n", conn_list[fd].rbuffer);
 

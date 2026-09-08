@@ -19,7 +19,7 @@
 #define MAX_MSG_LENGTH		1024
 #define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
-#define COUNT 500
+#define COUNT 100000
 
 int send_msg(int connfd, char *msg) {
 	char packet[1024] = {0};
@@ -36,16 +36,54 @@ int send_msg(int connfd, char *msg) {
 }
 
 int recv_msg(int connfd, char *msg, int length) {
-    int res = recv(connfd, msg, length, 0); // 修正recv调用格式
+    if (length <= 0) return -1;
+
+    int res = recv(connfd, msg, length - 1, 0);
     if (res < 0) {
         perror("recv");
         exit(1);
     }
 
+    msg[res] = '\0';
+
     //printf("%s\n", msg); // 直接打印char*指针指向的字符串
     return res;
 }
 
+static int response_matches(const char *actual, const char *expected) {
+    if (!actual || !expected) return 0;
+
+    if (strcmp(actual, expected) == 0) return 1;
+
+    if (actual[0] != '$' || expected[0] == '$') return 0;
+
+    const char *header_end = strstr(actual, "\r\n");
+    if (!header_end) return 0;
+
+    char *length_end = NULL;
+    long value_len = strtol(actual + 1, &length_end, 10);
+    if (value_len < 0) return 0;
+    if (length_end != header_end) return 0;
+
+    const char *value = header_end + 2;
+    size_t actual_len = strlen(actual);
+    size_t value_offset = (size_t)(value - actual);
+    if ((size_t)value_len > actual_len - value_offset ||
+        actual_len - value_offset - (size_t)value_len < 2) return 0;
+    if (value[value_len] != '\r' || value[value_len + 1] != '\n') return 0;
+
+    size_t expected_len = strlen(expected);
+    size_t expected_value_len = expected_len;
+    if (expected_value_len >= 2 &&
+        expected[expected_value_len - 2] == '\r' &&
+        expected[expected_value_len - 1] == '\n') {
+        expected_value_len -= 2;
+    }
+    if ((size_t)value_len != expected_value_len) return 0;
+
+        return (size_t)value_len == expected_value_len &&
+            memcmp(value, expected, (size_t)value_len) == 0;
+}
 
 
 
@@ -58,7 +96,7 @@ void testcase(int connfd, char *msg, char *pattern, char *casename) {
 	char result[MAX_MSG_LENGTH] = {0};
 	recv_msg(connfd, result, MAX_MSG_LENGTH);
 
-	if (strcmp(result, pattern) == 0) 
+    if (response_matches(result, pattern)) 
     {
 
     }else 
@@ -320,7 +358,7 @@ void persistence_testcase(int connfd)
 void MS_testcase(int connfd)
 {	
     
-    for(int i = 500; i < COUNT+500; i++)
+    for(int i = COUNT; i < COUNT * 2; i++)
     {
         char total_key[128] = {0};
         char total_val[128] = {0};    
@@ -341,7 +379,7 @@ void MS_testcase(int connfd)
 // testcase 192.168.254.100  2000
 int main(int argc, char *argv[]) {
 
-    char *ip = "192.168.254.100";
+    char *ip = "127.0.0.1";
     int master_port = 2000;
     int slave_port = 3000;
 
@@ -379,12 +417,8 @@ int main(int argc, char *argv[]) {
             send_msg(master_fd, buf);
             recv_msg(master_fd, resp, sizeof(resp));
             sprintf(expected, "King%d", i);
-            // 去除 \r\n
             LOG_DEBUG("resp: %s, expected: %s\n", resp, expected);
-            int len = strlen(resp);
-            if (len >= 2 && resp[len-2] == '\r' && resp[len-1] == '\n')
-                resp[len-2] = '\0';
-            if (strcmp(resp, expected) != 0) miss++;
+            if (!response_matches(resp, expected)) miss++;
         }
         close(master_fd);
         LOG_DEBUG("RDB 恢复校验：缺失/错误 %d 条\n", miss);
@@ -423,12 +457,8 @@ int main(int argc, char *argv[]) {
             send_msg(master_fd, buf);
             recv_msg(master_fd, resp, sizeof(resp));
             sprintf(expected, "King%d", i);
-            // 去除 \r\n
             LOG_DEBUG("resp: %s, expected: %s\n", resp, expected);
-            int len = strlen(resp);
-            if (len >= 2 && resp[len-2] == '\r' && resp[len-1] == '\n')
-                resp[len-2] = '\0';
-            if (strcmp(resp, expected) != 0) miss++;
+            if (!response_matches(resp, expected)) miss++;
         }
         close(master_fd);
         LOG_DEBUG("AOF 恢复校验：缺失/错误 %d 条\n", miss);
@@ -484,12 +514,8 @@ int main(int argc, char *argv[]) {
             sprintf(cmd, "GET Teacher%d", i);
             send_msg(slave_fd, cmd);
             recv_msg(slave_fd, resp, sizeof(resp));
-            // 去除 RESP 返回值的 \r\n 尾部
-            int len = strlen(resp);
-            if (len >= 2 && resp[len-2] == '\r' && resp[len-1] == '\n')
-                resp[len-2] = '\0';
             sprintf(expected, "King%d", i);
-            if (strcmp(resp, expected) != 0) {
+            if (!response_matches(resp, expected)) {
                 miss++;
                 if (miss < 10) {  // 只打印前10个错误，避免刷屏
                     LOG_INFO("key%d 期望 '%s'，实际 '%s'\n", i, expected, resp);

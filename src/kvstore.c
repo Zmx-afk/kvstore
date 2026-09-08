@@ -270,7 +270,6 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
     int ret_len = 0;
 	int ret = 0;
 
-
     int admin_cmd = -1;
     int cmd;
     //第一步优先匹配管理命令
@@ -285,7 +284,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
     //处理管理命令 没有则处理普通命令
     if(admin_cmd != -1)
     {
-        LOG_DEBUG("admin_cmd:%s\n",admin_command[admin_cmd]);
+        LOG_INFO("admin_cmd:%s\n",admin_command[admin_cmd]);
         //处理管理指令
         switch(admin_cmd)
         {
@@ -302,6 +301,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
 	            int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
                 
                 LOG_DEBUG("RDB_sync调用成功 timeused:%d\n", time_used);
+                ret_len = sprintf(response, "+OK\r\n");
                 break;
             }
             case ADMIN_CMD_BGSAVE:
@@ -309,21 +309,22 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 kvs_array_t* current = (kvs_array_t*)g_engine.impl;
                 RDB_async();
                 LOG_DEBUG("RDB_async调用成功\n");
+                ret_len = sprintf(response, "+OK\r\n");
                 break;
             }
             case ADMIN_CMD_SYNC:
             {
                 LOG_INFO("收到 SYNC 命令，当前连接将标记为从节点！");                
                 *is_sync = 1;
-
+                LOG_INFO("已设置 *is_sync = 1");
                 RDB_sync();
 
-                send_rdb_to_slave(g_slave_fd);
-                LOG_INFO("RDB数据已发送给从节点!");
-
-                ret_len = sprintf(response, "+OK\r\n");
+                ret_len = 0;
                 break;
             }
+            case ADMIN_CMD_PING:
+                ret_len = sprintf(response, "+PONG\r\n");
+                break;
             default:
                 ret_len = sprintf(response,"-ERR unknown admin cmd\r\n");
         }
@@ -356,15 +357,16 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 }
                 break;
 
-            case PROTO_CMD_GET: {
+            case PROTO_CMD_GET:
+            {
                 kvs_blob_t *val = kvs_get(&key_blob);
                 if (val == NULL)
                     ret_len = sprintf(response, "$-1\r\n");
                 else
                     // %.*s ：按长度打印，不怕\0截断
-                    ret_len = sprintf(response, "%.*s\r\n", val->len, (char*)val->data);
+                    ret_len = sprintf(response, "$%d\r\n%.*s\r\n", val->len,val->len,(char*)val->data);
                 break;
-                }
+            }
 
             case PROTO_CMD_DEL:
                 ret = kvs_del(&key_blob);

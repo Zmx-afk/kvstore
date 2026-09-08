@@ -8,7 +8,7 @@ const char *kv_command[] = {
 };
 
 const char *admin_command[] = {
-    "SAVE","BGSAVE","FLUSHALL"
+    "SAVE","BGSAVE","SYNC","PING","FLUSHALL"
 };
 
 /*
@@ -17,7 +17,7 @@ cmd是普通指令且是SET或者GET就返回1 未完成
 */
 int handle_cmd(char* cmd)
 {
-    if(!strcmp(cmd, "SAVE")||!strcmp(cmd, "BGSAVE")||!strcmp(cmd, "FLUSHALL"))
+    if(!strcmp(cmd, "SAVE")||!strcmp(cmd, "BGSAVE")||!strcmp(cmd, "SYNC"))
     {
         return -1;
     }

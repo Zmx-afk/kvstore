@@ -52,12 +52,12 @@ int load_config(const char *filename) {
         if (strcmp(key, "ip") == 0) 
         {
             strncpy(g_config.ip, val, MAX_IP_LEN - 1);
-            LOG_DEBUG("ip读取成功\n");
+            LOG_DEBUG("ip读取成功");
         } 
         else if (strcmp(key, "port") == 0) 
         {
             g_config.port = atoi(val);
-            LOG_DEBUG("port读取成功\n");
+            LOG_DEBUG("port读取成功");
         } 
         else if (strcmp(key, "role") == 0) 
         {
@@ -74,13 +74,13 @@ int load_config(const char *filename) {
                 LOG_ERROR("Invalid role: %s, defaulting to master\n", val);
                 g_config.role = ROLE_MASTER; // 默认值
             }
-            LOG_DEBUG("role读取成功:%d\n",g_config.role);
+            LOG_DEBUG("role读取成功:%d",g_config.role);
         } 
         else if (strcmp(key, "engine") == 0) 
         {
             strncpy(g_config.engine, val, sizeof(g_config.engine) - 1);
             g_config.engine[sizeof(g_config.engine)-1]='\0';
-            LOG_DEBUG("engine读取成功:%s\n",g_config.engine);
+            LOG_DEBUG("engine读取成功:%s",g_config.engine);
         } 
         else if (strcmp(key, "loglevel") == 0) 
         {
@@ -102,15 +102,15 @@ int load_config(const char *filename) {
             }
             else
             {
-                LOG_ERROR("Invalid loglevel: %s, defaulting to DEBUG\n", val);
+                LOG_ERROR("Invalid loglevel: %s, defaulting to DEBUG", val);
                 g_config.loglevel = LOG_DEBUG;
             }
-            LOG_DEBUG("loglevel读取成功:%d\n", g_config.loglevel);
+            LOG_DEBUG("loglevel读取成功:%d", g_config.loglevel);
         }
         else if (strcmp(key, "rdb_enable") == 0) 
         {
             g_config.rdb_enable = atoi(val);
-            LOG_DEBUG("rdb_enable读取成功:%d\n", g_config.rdb_enable);
+            LOG_DEBUG("rdb_enable读取成功:%d", g_config.rdb_enable);
         }
         else if (strcmp(key, "aof_strategy") == 0) 
         {
@@ -120,12 +120,16 @@ int load_config(const char *filename) {
             else if(strcmp(val, "everysec") == 0) {
                 g_config.aof_strategy = AOF_EVERYSEC;
             }
+            else if(strcmp(val,"no")==0)
+            {
+                g_config.aof_strategy = AOF_NO;
+            }
             else 
             {
                 LOG_ERROR("Invalid value for aof_strategy: %s\n", val);
                 g_config.aof_strategy = AOF_ALWAYS; // 默认值
             }
-            LOG_DEBUG("aof_strategy读取成功:%d\n", g_config.aof_strategy);
+            LOG_DEBUG("aof_strategy读取成功:%d", g_config.aof_strategy);
         } 
         else if (strcmp(key, "master_ip") == 0) 
         {

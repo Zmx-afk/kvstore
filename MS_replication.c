@@ -2,6 +2,7 @@
 #include "src/include/kvstore.h"
 #include "src/utils/log.h"
 #include <sys/socket.h>
+#include <errno.h>
 #include <pthread.h>
 #include <netinet/in.h>
 #include <stdio.h>
@@ -10,6 +11,40 @@
 
 
 #include "src/persist/persistence.h"
+
+static int recv_exact(int fd, void *buf, size_t len) {
+    size_t remain = len;
+    char *p = (char *)buf;
+    while (remain > 0) {
+        ssize_t n = recv(fd, p, remain, 0);
+        if (n == 0) return -1;
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        p += n;
+        remain -= (size_t)n;
+    }
+    return 0;
+}
+
+static int send_all(int fd, const void *buf, size_t len) {
+    const char *p = (const char *)buf;
+    size_t offset = 0;
+    while (offset < len) {
+        ssize_t n = send(fd, p + offset, len - offset, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) {
+            return -1;
+        }
+        offset += (size_t)n;
+    }
+    return 0;
+}
+
 /**
  * 发送 RDB 文件给从节点
  * @param slave_fd 从节点的 socket fd
@@ -43,7 +78,7 @@ int send_rdb_to_slave(int slave_fd)
 
     //2.发送文件大小
     uint32_t net_size = htonl((uint32_t)file_size);
-    if (send(slave_fd, &net_size, sizeof(net_size), 0) != sizeof(net_size)) 
+    if (send_all(slave_fd, &net_size, sizeof(net_size)) != 0) 
     {
         LOG_ERROR("发送 RDB 文件长度失败\n");
         fclose(fp);
@@ -55,13 +90,12 @@ int send_rdb_to_slave(int slave_fd)
     size_t bytes_read;
     long total_sent = 0;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
-        ssize_t sent = send(slave_fd, buffer, bytes_read, 0);
-        if (sent != (ssize_t)bytes_read) {
-            LOG_ERROR("发送 RDB 数据中断，已发送 %ld / %ld 字节\n", total_sent + sent, file_size);
+        if (send_all(slave_fd, buffer, bytes_read) != 0) {
+            LOG_ERROR("发送 RDB 数据中断，已发送 %ld / %ld 字节\n", total_sent, file_size);
             fclose(fp);
             return -1;
         }
-        total_sent += sent;
+        total_sent += bytes_read;
     }
 
     fclose(fp);
@@ -120,9 +154,10 @@ int send_rdb_to_slave(int slave_fd)
 
 void master_sync(char *data, int len) {
     if (g_role == ROLE_MASTER && g_slave_fd > 0) {
-        int sent = send(g_slave_fd, data, len, 0);
-        if (sent != len) {
-            LOG_ERROR("主节点同步命令失败，预期 %d 字节，实际 %d 字节,fd=%d\n", len, sent, g_slave_fd);
+        uint32_t net_len = htonl((uint32_t)len);
+        if (send_all(g_slave_fd, &net_len, sizeof(net_len)) != 0 ||
+            send_all(g_slave_fd, data, (size_t)len) != 0) {
+            LOG_ERROR("主节点同步命令失败，预期 %d 字节,fd=%d\n", len, g_slave_fd);
             // 断开连接，避免继续使用无效 fd
             close(g_slave_fd);
             g_slave_fd = -1;
@@ -151,14 +186,18 @@ void slave_run()
     LOG_DEBUG("从节点已连接主节点，等待同步\n");
 
     //2.发送SYNC命令请求同步
-    char *sync_cmd = "*1\r\n$4\r\nSYNC\r\n";
-    send(g_master_fd, sync_cmd, strlen(sync_cmd), 0);
+    const char *sync_cmd = "*1\r\n$4\r\nSYNC\r\n";
+    if (send_all(g_master_fd, sync_cmd, strlen(sync_cmd)) != 0) {
+        LOG_ERROR("发送 SYNC 命令失败\n");
+        close(g_master_fd);
+        return;
+    }
     LOG_DEBUG("从节点发送SYNC命令请求同步\n");
 
     //3.接收主节点发送的RDB数据并加载到本地
     //3.1先接收RDB文件长度
-    uint32_t net_size;
-    if (recv(g_master_fd, &net_size, 4, 0) != 4) {
+    uint32_t net_size = 0;
+    if (recv_exact(g_master_fd, &net_size, sizeof(net_size)) != 0) {
         LOG_ERROR("接收 RDB 长度失败\n");
         return;
     }
@@ -167,14 +206,22 @@ void slave_run()
 
     //循环接收数据 写入临时rdb文件
     FILE *fp = fopen("temp.rdb", "wb");
+    if (!fp) {
+        LOG_ERROR("创建 temp.rdb 失败\n");
+        return;
+    }
     char buf[8192];
     size_t remain = file_size;
     while (remain > 0) {
         int to_read = (remain < sizeof(buf)) ? remain : sizeof(buf);
-        int n = recv(g_master_fd, buf, to_read, 0);
-        if (n <= 0) break;
-        fwrite(buf, 1, n, fp);
-        remain -= n;
+        if (recv_exact(g_master_fd, buf, (size_t)to_read) != 0) {
+            break;
+        }
+        if (fwrite(buf, 1, (size_t)to_read, fp) != (size_t)to_read) {
+            remain = 1;
+            break;
+        }
+        remain -= (size_t)to_read;
     }
     fclose(fp);
 
@@ -185,23 +232,44 @@ void slave_run()
     }
     LOG_INFO("RDB 文件接收完成，大小: %u 字节\n", file_size);
 
+    // 先把刚接收到的快照落盘到正式 RDB 文件，再加载，避免加载旧的 RDB.rdb
+    if (rename("temp.rdb", "RDB.rdb") != 0) {
+        LOG_WARN("临时快照转正式 RDB 失败，尝试直接加载 temp.rdb\n");
+    }
+
     g_engine.destroy(g_engine.impl);
     g_engine.impl = g_engine.create();
     RDB_load((kvs_array_t*)g_engine.impl);
     
-    //增量持久化部分
-    while (1) 
-    {
-        char cmd_buf[1024] = {0};
-        int n = recv(g_master_fd, cmd_buf, sizeof(cmd_buf), 0);
-        if (n <= 0) break;
-        
-        g_is_sync = 1;   // 关键！告诉业务层这是同步来的命令
-        char response[1024] = {0};
+    // 每条增量命令使用长度前缀，避免 TCP 粘包和拆包问题。
+    while (1) {
+        uint32_t net_len = 0;
+        if (recv_exact(g_master_fd, &net_len, sizeof(net_len)) != 0) {
+            break;
+        }
 
+        uint32_t command_len = ntohl(net_len);
+        if (command_len == 0 || command_len > 65536) {
+            LOG_ERROR("收到非法增量命令长度: %u\n", command_len);
+            break;
+        }
+
+        char *command = malloc(command_len);
+        if (!command) {
+            LOG_ERROR("增量命令内存分配失败，长度: %u\n", command_len);
+            break;
+        }
+        if (recv_exact(g_master_fd, command, command_len) != 0) {
+            free(command);
+            break;
+        }
+
+        g_is_sync = 1;
+        char response[1024] = {0};
         int sync_flag = 1;
-        kvs_protocol(cmd_buf, n, response,&sync_flag);  // 执行命令
+        kvs_protocol(command, (int)command_len, response, &sync_flag);
         g_is_sync = 0;
+        free(command);
     }
     
 }

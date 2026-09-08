@@ -1,5 +1,5 @@
 CC = gcc
-FLAGS = -I ./NtyCo/core/ -I ./src/include/ -L ./NtyCo/ -lntyco -lpthread -luring -ldl -ljemalloc
+FLAGS = -I ./NtyCo/core/ -I ./src/include/ -L ./NtyCo/ -lntyco -lpthread -luring -ldl #-ljemalloc
 
 # 分模块定义源文件
 SRCS_ENGINE = src/engine/kvs_array.c src/engine/kvs_rbtree.c src/engine/kvs_hash.c src/engine/kvs_skiptable.c
