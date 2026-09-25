@@ -2,9 +2,11 @@
 
 
 
-#include "nty_coroutine.h"
+#include "../../NtyCo/core/nty_coroutine.h"
 
 #include <arpa/inet.h>
+#include <stdio.h>
+
 
 
 typedef int (*msg_handler)(char *msg, int length, char *response);
@@ -51,7 +53,11 @@ void server(void *arg) {
 	local.sin_family = AF_INET;
 	local.sin_port = htons(port);
 	local.sin_addr.s_addr = INADDR_ANY;
-	bind(fd, (struct sockaddr*)&local, sizeof(struct sockaddr_in));
+	if(bind(fd, (struct sockaddr*)&local, sizeof(struct sockaddr_in))==-1)
+	{
+		perror("bind failed\n");
+		return;
+	}
 
 	listen(fd, 20);
 	printf("listen port : %d\n", port);

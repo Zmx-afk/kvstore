@@ -16,7 +16,7 @@
 #include <errno.h>
 
 #include "persistence.h"
-
+#include "../engine/engine.h"
 
 
 //#include <sys/types.h>
@@ -44,68 +44,89 @@ int read_n(int fd, void *buf,size_t n)
     return 0;
 }
 
+//======================================================================================
+/*
+2.0版本
+    RDB_sync()-->RDB_realize()-->rdb_do_dump()-->kvs_array_foreach()使用回调-->rdb_entry_callback()-->rdb_write_kv()
+    rdb_write_kv()主要问题:多次系统调用write 使得开销变大 改造思路 创建一块大缓冲区 存满后存入文件 只需要调用一次write
+
+*/
+
+
+/*
+    rdb_buffer_append():
+        把数据拷贝到ctx的buffer buffer满后刷入文件
+    rdb_ctx_t *ctx: 上下文结构体
+    data: 需要写入缓冲区的数据
+    len: 写入缓冲区数据的长度 
+*/
+static int rdb_buffer_append(rdb_ctx_t *ctx, const void *data, size_t len)
+{
+    if(ctx->buf_pos+len>ctx->buf_size)
+    {
+        //写入不了新的数据 因为buffer即将满 调用write清空
+        ssize_t write_len = write(ctx->fd,ctx->buf,ctx->buf_pos);
+        if(write_len != ctx->buf_pos)
+        {
+            LOG_ERROR("write buffer to file failed");
+            return -1;
+        } 
+        ctx->buf_pos=0;
+
+    }
+
+    //写入新数据
+    memcpy(ctx->buf+ctx->buf_pos,data,len);
+    ctx->buf_pos += len;
+
+    return 0;
+}
 
 
 /**
- * 序列化单条记录，把内存的blob转成二进制字节写到fd
+ *rdb_write_kv作用:调用rdb_buffer_append 将每条kv记录写入缓冲区 缓冲区满后的写入逻辑由rdb_buffer_append处理 
+ *序列化单条记录，把内存的blob转成二进制字节写到fd
  * 格式：key_len(4) | key数据 | val_len(4) | val数据 | expire_ms(8)
+ *
+
  */
-static void rdb_write_kv(int fd, kvs_blob_t *key, kvs_blob_t *val, uint64_t expire_ms)
+static void rdb_write_kv(rdb_ctx_t *ctx, kvs_blob_t *key, kvs_blob_t *val, uint64_t expire_ms)
 {
     uint32_t klen = key->len;
     uint32_t vlen = val->len;
 
-    if(write(fd,&klen,sizeof(uint32_t))==-1)
-    {
-        LOG_DEBUG("write klen fail\n");
-    }
-    
-    if(write(fd,key->data,klen)==-1)
-    {
-        LOG_DEBUG("write kdata fail\n");
-    }
+    rdb_buffer_append(ctx,&klen,sizeof(uint32_t));    
+    rdb_buffer_append(ctx,key->data,klen);
+    rdb_buffer_append(ctx,&vlen,sizeof(uint32_t));
+    rdb_buffer_append(ctx,val->data,vlen);
+    rdb_buffer_append(ctx,&expire_ms,sizeof(uint64_t));
 
-    if(write(fd,&vlen,sizeof(uint32_t))==-1)
-    {
-        LOG_DEBUG("write vlen fail\n");
-    }
-    
-    if(write(fd,val->data,vlen)==-1)
-    {
-        LOG_DEBUG("write vdata fail\n");
-    }
-
-    if(write(fd,&expire_ms,sizeof(uint64_t))==-1)
-    {
-        LOG_DEBUG("write expire_ms fail\n");
-    }
-
-}
-
-// 写文件末尾结束标记
-static void rdb_write_eof(int fd)
-{
-    uint8_t eof_mark[8] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
-    write(fd, eof_mark, 8);
 }
 
 /**
  * 回调函数：由kvs_array_foreach循环调用
- * arg 传入fd的地址
+ * arg: 缓冲区上下文
+ * 
  */
 static void rdb_entry_callback(void *arg,kvs_blob_t *key,kvs_blob_t *val,uint64_t expire_ms)
 {
-    int fd = *(int*)arg;
+    rdb_ctx_t *ctx = (rdb_ctx_t *)arg;
     //LOG_DEBUG("[rdb callback] key len:%d\n", key->len);
-    rdb_write_kv(fd,key,val,expire_ms);
+    rdb_write_kv(ctx,key,val,expire_ms);
 }
 
-int rdb_do_dump(kvs_array_t *inst,const char *tmp_path, const char *real_path)
+
+/*
+    rdb_do_dump()
+    RDB文件头部是REDIS加版本号
+
+*/
+#define RDB_BUF_SIZE    4096
+int rdb_do_dump(engine_t *inst,const char *tmp_path, const char *real_path)
 {
 
-    LOG_DEBUG("【RDB调试】rdb_do_dump被调用,引擎内总条目数: %d\n", inst->total);
+    //LOG_DEBUG("【RDB调试】rdb_do_dump被调用,引擎内总条目数: %d\n", inst->total);
 
-    //1.创建临时文件
     int fd = open(tmp_path,O_RDWR | O_CREAT | O_TRUNC,0644);
     if(fd < 0)
     {
@@ -114,28 +135,55 @@ int rdb_do_dump(kvs_array_t *inst,const char *tmp_path, const char *real_path)
     }
     LOG_DEBUG("fd create success\n");
 
-    //2.RDB文件头部是4字节魔数REDI 1字节版本
-    write(fd,"REDIS",5);
-    uint8_t version = 0;
-    write(fd,&version,sizeof(uint8_t));
+    //初始化缓冲区参数(缓冲区创建在堆区)
+    char *buf = malloc(RDB_BUF_SIZE);
+    rdb_ctx_t ctx = {
+        .fd = fd,
+        .buf = buf,
+        .buf_pos = 0,
+        .buf_size = RDB_BUF_SIZE
+    };
 
-    //3.遍历全部kv 在array.c中回调 回调函数为rdb_entry_callback
-    kvs_array_foreach(inst,rdb_entry_callback, &fd);
+    //RDB文件头部是4字节魔数REDI加1字节版本
+    rdb_buffer_append(&ctx,"REDIS",5);
+    uint8_t version = 0;
+    rdb_buffer_append(&ctx,&version,sizeof(uint8_t));
+
+    //遍历存储引擎全部kv 在array.c中回调 回调函数为rdb_entry_callback
+    engine_foreach(inst,rdb_entry_callback, &ctx);
     LOG_DEBUG("遍历完成\n");
 
-    //4.写结束标记
-    rdb_write_eof(fd);
+    //遍历结束 若buffer里面残留数据 需强制刷盘
+    if(ctx.buf_pos>0)
+    {
+        ssize_t write_len = write(fd, ctx.buf, ctx.buf_pos);
+        if(write_len != ctx.buf_pos)
+        {
+            LOG_ERROR("flush remain buffer fail");
+            free(buf);
+            close(fd);
+            return -1;
+        }
+        ctx.buf_pos = 0;
+    }
+
+    //写结束标记
+    uint8_t eof_mark[8] = {0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff};
+    write(fd, eof_mark, 8);
     LOG_DEBUG("写eof结束\n");
 
-    //5.把数据刷到磁盘
+    //把数据刷到磁盘
     fsync(fd);
     LOG_DEBUG("刷盘完成\n");
 
-    //6.关闭fd
+    //关闭fd
     close(fd);
     LOG_DEBUG("关闭fd完成\n");
 
-    //7.原子重命名
+    //释放缓冲区
+    free(buf);
+
+    //原子重命名
     if(rename(tmp_path,real_path)!=0)
     {
         LOG_ERROR("rename rdb fail\n");
@@ -154,19 +202,12 @@ int RDB_realize()
     sprintf(tmp_name,"%s.tmp",real_name);
 
 
-#if ENABLE_ARRAY
-    kvs_array_t *current = (kvs_array_t*)g_engine.impl;
+    engine_t *current = g_engine;
 
     rdb_do_dump(current,tmp_name, real_name);
     LOG_DEBUG("rdb_do_dump被调用");
 
-#elif ENABLE_RBTREE
-    kvs_rbtree_t *current = (kvs_rbtree_t*)g_engine.impl;
-    
 
-#elif ENABEL_HASH
-
-#endif
     
     //exit(0);
 
@@ -216,7 +257,7 @@ int RDB_async()
 }
 
 //RDB文件恢复函数
-int RDB_load(kvs_array_t *inst)
+int RDB_load(engine_t *inst)
 {
     char rdb_path[256] = "RDB.rdb";
     int fd = open(rdb_path, O_RDONLY);
@@ -317,7 +358,7 @@ int RDB_load(kvs_array_t *inst)
         kvs_blob_t key = {.data = key_buf,.len = klen};
         kvs_blob_t val = {.data = val_buf,.len = vlen};
 
-        kvs_array_set(inst, &key, &val);
+        engine_set(inst, &key, &val);
         free(key_buf);
         free(val_buf);
 
@@ -402,15 +443,15 @@ int AOF_restore()
 
         if(strcmp(cmd,"SET")==0)
         {
-            g_engine.set(g_engine.impl,&key_blob,&val_blob);
+            engine_set(g_engine,&key_blob,&val_blob);
         }
         else if(strcmp(cmd,"MOD")==0)
         {
-            g_engine.mod(g_engine.impl,&key_blob,&val_blob);
+            engine_mod(g_engine,&key_blob,&val_blob);
         }
         else if(strcmp(cmd,"DEL")==0)
         {
-            g_engine.del(g_engine.impl,&key_blob);
+            engine_del(g_engine,&key_blob);
         }
         count++;
     }

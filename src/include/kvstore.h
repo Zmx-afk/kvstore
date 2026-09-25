@@ -20,7 +20,7 @@
 #define NETWORK_PROACTOR	1
 #define NETWORK_NTYCO		2
 
-#define NETWORK_SELECT		NETWORK_REACTOR
+#define NETWORK_SELECT		NETWORK_NTYCO
 
 #define KVS_MAX_TOKENS		128
 
@@ -40,20 +40,10 @@ typedef struct {
 
 extern struct memory_kvs g_kvs;
 
-typedef struct {
-    void *impl;//指向存储引擎
+struct engine_s;
+typedef struct engine_s engine_t;
 
-    int (*set)(void *inst, kvs_blob_t *key, kvs_blob_t *value);
-    kvs_blob_t* (*get)(void *inst, kvs_blob_t *key);
-    int (*del)(void *inst, kvs_blob_t *key);
-    int (*mod)(void *inst, kvs_blob_t *key, kvs_blob_t *value);
-    int (*exist)(void *inst, kvs_blob_t *key);
-    
-    void* (*create)(void);
-    void (*destroy)(void *inst);
-
-}kvs_engine_t;
-extern kvs_engine_t g_engine;
+extern engine_t *g_engine;
 
 
 #define BUFFER_LENGTH		1024

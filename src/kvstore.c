@@ -7,9 +7,7 @@
 #include "utils/log.h"
 #include "utils/timer.h"
 
-#include "engine/kvs_array.h"
-#include "engine/kvs_rbtree.h"
-#include "engine/kvs_hash.h"
+#include "engine/engine.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,195 +30,17 @@ extern void send_rdb_to_slave(int slave_fd);
 
 static int g_epfd = -1;   // 供定时器使用
 
+engine_t *g_engine = {0};
 
-/*
-    this struct and these function is used to load config and choose engine
-    at the same time set the corresponding function for the engine
-
-*/
-
-
-kvs_engine_t g_engine = {0};
-
-static int array_set_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
+int init_kvengine(void) 
 {
-    return kvs_array_set((kvs_array_t*)inst, k, v);
-}
-
-static kvs_blob_t* array_get_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_array_get((kvs_array_t*)inst, k);
-}
-
-static int array_del_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_array_del((kvs_array_t*)inst, k);
-}
-
-static int array_mod_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
-{
-    return kvs_array_mod((kvs_array_t*)inst, k, v);
-}
-
-static int array_exist_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_array_exist((kvs_array_t*)inst, k);
-}
-
-static void* array_create_wrap(void){
-    return (void*)kvs_array_create();
-}
-
-static void array_destroy_wrap(void *inst){
-    kvs_array_destroy((kvs_array_t*)inst);
-}
-
-
-static int rbtree_set_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
-{
-    return kvs_rbtree_set((kvs_rbtree_t*)inst, k, v);
-}
-
-static kvs_blob_t* rbtree_get_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_rbtree_get((kvs_rbtree_t*)inst, k);
-}
-
-static int rbtree_del_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_rbtree_del((kvs_rbtree_t*)inst, k);
-}
-
-static int rbtree_mod_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
-{
-    return kvs_rbtree_mod((kvs_rbtree_t*)inst, k, v);
-}
-
-static int rbtree_exist_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_rbtree_exist((kvs_rbtree_t*)inst, k);
-}
-
-static void* rbtree_create_wrap(void){
-    return (void*)kvs_rbtree_create();
-}
-
-static void rbtree_destroy_wrap(void *inst){
-    return kvs_rbtree_destory((kvs_rbtree_t*)inst);
-}
-
-
-static int hash_set_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
-{
-    return kvs_hash_set((kvs_hash_t*)inst, k, v);
-}
-
-static kvs_blob_t* hash_get_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_hash_get((kvs_hash_t*)inst, k);
-}
-
-static int hash_del_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_hash_del((kvs_hash_t*)inst, k);
-}
-
-static int hash_mod_wrap(void *inst,kvs_blob_t *k,kvs_blob_t *v)
-{
-    return kvs_hash_mod((kvs_hash_t*)inst, k, v);
-}
-
-static int hash_exist_wrap(void *inst, kvs_blob_t *k) {
-    return kvs_hash_exist((kvs_hash_t*)inst, k);
-}
-
-static void* hash_create_wrap(void){
-    return (void*)kvs_hash_create();
-}
-
-static void hash_destroy_wrap(void *inst){
-    return kvs_hash_destory((kvs_hash_t*)inst);
-}
-
-/*
-    compatible with corresponding operations
-*/
-
-static int kvs_set(kvs_blob_t *key,kvs_blob_t* val)
-{   
-    return g_engine.set(g_engine.impl,key,val);
-}
-
-static kvs_blob_t* kvs_get(kvs_blob_t *key)
-{   
-    return g_engine.get(g_engine.impl,key);
-}
-
-static int kvs_mod(kvs_blob_t *key,kvs_blob_t* val)
-{   
-    return g_engine.mod(g_engine.impl,key,val);
-}
-
-static int kvs_del(kvs_blob_t *key)
-{   
-    return g_engine.del(g_engine.impl,key);
-}
-
-static int kvs_exist(kvs_blob_t *key)
-{   
-    return g_engine.exist(g_engine.impl,key);
-}
-
-/*
-    init the corresponding enging
-    destroy engine
-*/
-
-int init_kvengine(void) {
-    if(!strcmp(g_config.engine,"array"))
-    {
-        g_engine.set = array_set_wrap;
-        g_engine.get = array_get_wrap;
-        g_engine.del = array_del_wrap;
-        g_engine.mod = array_mod_wrap;
-        g_engine.exist = array_exist_wrap;
-        g_engine.create = array_create_wrap;
-        g_engine.destroy = array_destroy_wrap;
-        LOG_DEBUG("array\n");
-    }
-    else if(!strcmp(g_config.engine,"rbtree"))
-    {
-        g_engine.set = rbtree_set_wrap;
-        g_engine.get = rbtree_get_wrap;
-        g_engine.del = rbtree_del_wrap;
-        g_engine.mod = rbtree_mod_wrap;
-        g_engine.exist = rbtree_exist_wrap;
-        g_engine.create = rbtree_create_wrap;
-        g_engine.destroy = rbtree_destroy_wrap;
-        LOG_DEBUG("rbtree\n");
-    }
-    else if(!strcmp(g_config.engine,"hash"))
-    {
-        g_engine.set = hash_set_wrap;
-        g_engine.get = hash_get_wrap;
-        g_engine.del = hash_del_wrap;
-        g_engine.mod = hash_mod_wrap;
-        g_engine.exist = hash_exist_wrap;
-        g_engine.create = hash_create_wrap;
-        g_engine.destroy = hash_destroy_wrap;
-        LOG_DEBUG("hash\n");
-    }
-    else 
-    {
-        printf("未读取到使用的引擎:%s 默认使用数组\n",g_config.engine);
-        //strcpy(g_config.engine,"array");
-        g_engine.set = array_set_wrap;
-        g_engine.get = array_get_wrap;
-        g_engine.del = array_del_wrap;
-        g_engine.mod = array_mod_wrap;
-        g_engine.exist = array_exist_wrap;
-        g_engine.create = array_create_wrap;
-        g_engine.destroy = array_destroy_wrap;
-    }
-    g_engine.impl = g_engine.create();
-    return g_engine.impl ? 0:-1;
+    g_engine = engine_create();
+    return 0;
 }
 
 void dest_kvengine(void)
 {
-    g_engine.destroy(g_engine.impl);
+    engine_destroy(g_engine);
 }
 
 
@@ -290,7 +110,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
         {
             case ADMIN_CMD_SAVE:
             {
-                kvs_array_t* current = (kvs_array_t*)g_engine.impl;
+                engine_t* current = g_engine;
                 struct timeval tv_begin;
 	            gettimeofday(&tv_begin, NULL);
 
@@ -300,13 +120,13 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
 
 	            int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
                 
-                LOG_DEBUG("RDB_sync调用成功 timeused:%d\n", time_used);
+                LOG_INFO("RDB_sync调用成功 timeused:%d\n", time_used);
                 ret_len = sprintf(response, "+OK\r\n");
                 break;
             }
             case ADMIN_CMD_BGSAVE:
             {
-                kvs_array_t* current = (kvs_array_t*)g_engine.impl;
+                engine_t* current = g_engine;
                 RDB_async();
                 LOG_DEBUG("RDB_async调用成功\n");
                 ret_len = sprintf(response, "+OK\r\n");
@@ -343,7 +163,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
         {
             case PROTO_CMD_SET:
                 //LOG_DEBUG(">>> SET command executed!\n");
-                ret = kvs_set(&key_blob, &val_blob);
+                ret = engine_set(g_engine,&key_blob, &val_blob);
                 if (ret < 0) {
                     ret_len = sprintf(response, "-ERR internal error\r\n");
                 } else if (ret == 0) {
@@ -359,7 +179,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
 
             case PROTO_CMD_GET:
             {
-                kvs_blob_t *val = kvs_get(&key_blob);
+                kvs_blob_t *val = engine_get(g_engine,&key_blob);
                 if (val == NULL)
                     ret_len = sprintf(response, "$-1\r\n");
                 else
@@ -369,7 +189,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
             }
 
             case PROTO_CMD_DEL:
-                ret = kvs_del(&key_blob);
+                ret = engine_del(g_engine,&key_blob);
                 if (ret == 0)
                     ret_len = sprintf(response, ":1\r\n");
                 else
@@ -381,7 +201,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 break;
 
             case PROTO_CMD_MOD:
-                ret = kvs_mod(&key_blob, &val_blob);
+                ret = engine_mod(g_engine,&key_blob, &val_blob);
                 if (ret == 0)
                     ret_len = sprintf(response, "+OK\r\n");
                 else
@@ -393,7 +213,7 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 break;
 
             case PROTO_CMD_EXIST:
-                ret = kvs_exist(&key_blob);
+                ret = engine_exist(g_engine,&key_blob);
                 if (ret == 0)
                     ret_len = sprintf(response, ":1\r\n");
                 else

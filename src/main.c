@@ -8,7 +8,7 @@
 #include "include/config.h"
 #include "utils/log.h"
 
-#include "engine/kvs_array.h"
+#include "engine/engine.h"
 #include "persist/persistence.h"
 
 /*
@@ -24,8 +24,8 @@ int main(int argc, char *argv[])
             config_file = "config_slave.conf";
         } 
     }
-    LOG_INFO("argv[0]: %s,argv[1]: %s\n", argv[0], argv[1]);
-    LOG_INFO("使用配置文件: %s\n", config_file);
+    printf("argv[0]: %s,argv[1]: %s\n", argv[0], argv[1]);
+    printf("使用配置文件: %s\n", config_file);
 	// 加载配置文件
     if (load_config(config_file) != 0) {
         LOG_ERROR("加载配置文件失败，使用默认配置\n");
@@ -48,9 +48,10 @@ int main(int argc, char *argv[])
         AOF_restore();
         LOG_INFO("AOF 恢复完成\n");
     }
+
     else if(g_config.role== ROLE_MASTER && g_config.rdb_enable == 1)
     {
-        kvs_array_t *current = (kvs_array_t*)g_engine.impl;
+        engine_t *current = g_engine;
         if (!current) 
         { 
             LOG_ERROR("引擎初始化失败\n"); 
@@ -61,11 +62,11 @@ int main(int argc, char *argv[])
         {
             LOG_INFO("RDB 加载成功，条目数：%d\n", current->total);
             int count = 0;
-            while(current->total > 0&& count < current->total) 
-            {
-                LOG_DEBUG("key: %.*s, value: %.*s\n", current->table[count].key.len, (char*)current->table[count].key.data, current->table[count].value.len, (char*)current->table[count].value.data);
-                count++;
-            }
+            // while(current->total > 0&& count < current->total) 
+            // {
+            //     LOG_DEBUG("key: %.*s, value: %.*s\n", current->table[count].key.len, (char*)current->table[count].key.data, current->table[count].value.len, (char*)current->table[count].value.data);
+            //     count++;
+            // }
         } else 
         {
             LOG_ERROR("RDB 加载失败");
@@ -86,9 +87,9 @@ int main(int argc, char *argv[])
 
 #if (NETWORK_SELECT == NETWORK_REACTOR)
 	reactor_start(port, kvs_protocol);
-#elif (NETWORK_SELECT == NETWORK_PROACTOR)
-	ntyco_start(port, kvs_protocol);
 #elif (NETWORK_SELECT == NETWORK_NTYCO)
+	ntyco_start(port, kvs_protocol);
+#elif (NETWORK_SELECT == NETWORK_PROACTOR)
 	proactor_start(port, kvs_protocol);
 #endif
 

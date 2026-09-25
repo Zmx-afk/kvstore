@@ -1,6 +1,5 @@
 
 
-#include "src/engine/kvs_array.h"
 #include "src/include/kvstore.h"
 #include "src/include/protocol.h"
 #include "src/utils/log.h"
@@ -16,10 +15,13 @@
 
 #include <unistd.h>
 
+#include <stdint.h>
+#include <inttypes.h>
+
 #define MAX_MSG_LENGTH		1024
 #define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
-#define COUNT 100000
+#define COUNT 50000
 
 int send_msg(int connfd, char *msg) {
 	char packet[1024] = {0};
@@ -329,8 +331,8 @@ void kvs_testcase1_100w(int connfd)
 	gettimeofday(&tv_end, NULL);
 
 	int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
-
-	printf("testcase --> time_used: %d, qps: %d\n", time_used,  (COUNT* 9000) / time_used);
+    uint64_t qps_val = (COUNT * 9000ULL) / time_used;
+	printf("testcase --> time_used: %d, qps: %" PRIu64 "\n", time_used,qps_val);
 
     
 }
@@ -536,6 +538,12 @@ int main(int argc, char *argv[]) {
         }
     }
     
+    if(mode == 6)
+    {
+        int fd = connect_tcpserver(ip, master_port);
+        kvs_testcase1_100w(fd);
+    }
+
 
 	return 0;
 	

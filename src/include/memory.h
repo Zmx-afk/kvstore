@@ -5,8 +5,8 @@
 
 typedef struct mp_pool_s mp_pool_t;
 
-void *kvs_malloc(mp_pool_t *pool, size_t size);
-void kvs_free(mp_pool_t *pool, void *ptr);
+void *kvs_malloc(size_t size);
+void kvs_free(void *ptr);
 
 size_t mm_pool_size(void);
 

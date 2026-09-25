@@ -2,7 +2,7 @@ CC = gcc
 FLAGS = -I ./NtyCo/core/ -I ./src/include/ -L ./NtyCo/ -lntyco -lpthread -luring -ldl #-ljemalloc
 
 # 分模块定义源文件
-SRCS_ENGINE = src/engine/kvs_array.c src/engine/kvs_rbtree.c src/engine/kvs_hash.c src/engine/kvs_skiptable.c
+SRCS_ENGINE = src/engine/engine.c
 SRCS_NETWORK = src/network/reactor.c src/network/ntyco.c src/network/proactor.c src/network/protocol_resp.c
 SRCS_PERSIST = src/persist/persistence.c
 SRCS_UTILS = src/utils/memory.c src/utils/Mm_pool.c src/utils/timer.c src/utils/log.c

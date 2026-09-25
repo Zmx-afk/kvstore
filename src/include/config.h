@@ -21,7 +21,6 @@ typedef struct{
     
     // 0: master, 1: slave
     uint8_t role; 
-    char engine[16];
     uint8_t loglevel;
     // 0: disable, 1: enable
     uint8_t rdb_enable; 

@@ -1,3 +1,4 @@
+#include "src/engine/engine.h"
 #include "src/include/config.h"
 #include "src/include/kvstore.h"
 #include "src/utils/log.h"
@@ -237,9 +238,9 @@ void slave_run()
         LOG_WARN("临时快照转正式 RDB 失败，尝试直接加载 temp.rdb\n");
     }
 
-    g_engine.destroy(g_engine.impl);
-    g_engine.impl = g_engine.create();
-    RDB_load((kvs_array_t*)g_engine.impl);
+    engine_destroy(g_engine);
+    engine_create();
+    RDB_load(g_engine);
     
     // 每条增量命令使用长度前缀，避免 TCP 粘包和拆包问题。
     while (1) {
