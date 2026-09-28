@@ -49,7 +49,7 @@ extern engine_t *g_engine;
 #define BUFFER_LENGTH		1024
 
 
-typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync);
+typedef int (*msg_handler)(char *msg, int length, char *response,int *is_sync,int *consumed);
 
 
 extern int reactor_start(unsigned short port, msg_handler handler);
@@ -57,7 +57,7 @@ extern int proactor_start(unsigned short port, msg_handler handler);
 extern int ntyco_start(unsigned short port, msg_handler handler);
 
 //protocal
-int kvs_protocol(char *msg, int length, char *response,int *is_sync);
+int kvs_protocol(char *msg, int length, char *response,int *is_sync,int *consumed);
 
 
 
@@ -86,7 +86,7 @@ void dest_kvengine(void);
 
 
 //AOF
-int AOF(const char *msg);
+int AOF(const char *msg,int len,int strategy);
 int AOF_restore();
 
 //RDB

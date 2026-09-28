@@ -24,15 +24,13 @@ int main(int argc, char *argv[])
             config_file = "config_slave.conf";
         } 
     }
-    printf("argv[0]: %s,argv[1]: %s\n", argv[0], argv[1]);
-    printf("使用配置文件: %s\n", config_file);
 	// 加载配置文件
     if (load_config(config_file) != 0) {
         LOG_ERROR("加载配置文件失败，使用默认配置\n");
         return -1;
     }
-
     int port = g_config.port;
+    
 
     log_set_level(g_config.loglevel);
 
@@ -42,13 +40,11 @@ int main(int argc, char *argv[])
         return -1;
     }
     
-    
     if(g_config.role == ROLE_MASTER && (g_config.aof_strategy == AOF_ALWAYS || g_config.aof_strategy == AOF_EVERYSEC))
     {
+        AOF_init();
         AOF_restore();
-        LOG_INFO("AOF 恢复完成\n");
     }
-
     else if(g_config.role== ROLE_MASTER && g_config.rdb_enable == 1)
     {
         engine_t *current = g_engine;
@@ -58,6 +54,7 @@ int main(int argc, char *argv[])
             return -1; 
         }
         int ret = RDB_load(current);
+        printf("RDB_load完成\n");
         if (ret == 0) 
         {
             LOG_INFO("RDB 加载成功，条目数：%d\n", current->total);
@@ -93,6 +90,7 @@ int main(int argc, char *argv[])
 	proactor_start(port, kvs_protocol);
 #endif
 
+    AOF_destroy();
 	dest_kvengine();
     close(g_master_fd);
     close(g_slave_fd);

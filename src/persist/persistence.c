@@ -14,14 +14,28 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
+#include <liburing.h>
+#include <sys/types.h>
 
 #include "persistence.h"
 #include "../engine/engine.h"
+#include "../include/config.h"
+#include "../include/protocol.h"
+
+
+#include <sys/time.h>
+#include <time.h>
 
 
 //#include <sys/types.h>
 //#include <sys/stat.h>
 #include <fcntl.h>
+
+#define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
+
 
 //从fd精确读n字节到buf 成功返回0 出错/EOF返回-1
 int read_n(int fd, void *buf,size_t n)
@@ -44,6 +58,30 @@ int read_n(int fd, void *buf,size_t n)
     return 0;
 }
 
+static int write_all(int fd,const void *buf,size_t len)
+{
+    const char *p = buf;
+    size_t offset = 0;
+    while(offset<len)
+    {
+        ssize_t n = write(fd,buf,len - offset);
+        if(n<0)
+        {
+            if(errno == EINTR)
+            {
+                continue;
+            }
+            return -1;
+        }
+        if(n == 0)
+        {
+            return -1;
+        }
+        offset += n;
+    }
+    return 0;
+}
+
 //======================================================================================
 /*
 2.0版本
@@ -55,18 +93,38 @@ int read_n(int fd, void *buf,size_t n)
 
 /*
     rdb_buffer_append():
-        把数据拷贝到ctx的buffer buffer满后刷入文件
+        把数据拷贝到ctx的buffer buffer满后刷入文件 对大条数据进行额外处理
     rdb_ctx_t *ctx: 上下文结构体
     data: 需要写入缓冲区的数据
     len: 写入缓冲区数据的长度 
 */
 static int rdb_buffer_append(rdb_ctx_t *ctx, const void *data, size_t len)
 {
+    /*单条数据比整个缓冲区大->直接写文件*/
+    if(len>ctx->buf_size)
+    {
+        /*先刷掉缓冲区已有数据*/
+        if(ctx->buf_pos>0)
+        {
+            if(write_all(ctx->fd,ctx->buf, ctx->buf_pos)!=0)
+            {
+                return -1;
+            }
+            ctx->buf_pos = 0;
+        }
+        /*直接把大条数据写入*/
+        if(write_all(ctx->fd,data,len)!=0)
+        {
+            return -1;
+        }
+        return 0;
+    }
+
+    /*正常路径*/
     if(ctx->buf_pos+len>ctx->buf_size)
     {
         //写入不了新的数据 因为buffer即将满 调用write清空
-        ssize_t write_len = write(ctx->fd,ctx->buf,ctx->buf_pos);
-        if(write_len != ctx->buf_pos)
+        if(write_all(ctx->fd,ctx->buf,ctx->buf_pos)!=0)
         {
             LOG_ERROR("write buffer to file failed");
             return -1;
@@ -121,7 +179,7 @@ static void rdb_entry_callback(void *arg,kvs_blob_t *key,kvs_blob_t *val,uint64_
     RDB文件头部是REDIS加版本号
 
 */
-#define RDB_BUF_SIZE    4096
+#define RDB_BUF_SIZE    (256*1024)
 int rdb_do_dump(engine_t *inst,const char *tmp_path, const char *real_path)
 {
 
@@ -224,7 +282,6 @@ RDB_sync
 int RDB_sync()
 {
     RDB_realize();
-    fflush(stdout);
     return 0;
 }
 
@@ -248,7 +305,6 @@ int RDB_async()
             close(fd);
         }
         RDB_realize();
-        fflush(stdout);
         exit(0);
         
     }
@@ -259,112 +315,111 @@ int RDB_async()
 //RDB文件恢复函数
 int RDB_load(engine_t *inst)
 {
-    char rdb_path[256] = "RDB.rdb";
-    int fd = open(rdb_path, O_RDONLY);
+    int fd = open("RDB.rdb", O_RDONLY);
     if(fd<0)
     {
         LOG_ERROR("RDB_load fd open fail\n");
         return -1;
     }
+
+    struct stat st;
+    fstat(fd,&st);
+
+    /* 文件小于头部 */
+    if (st.st_size < 6) {
+        LOG_ERROR("RDB 文件太小");
+        close(fd);
+        return -1;
+    }
+    struct timeval tv_begin;
+	gettimeofday(&tv_begin, NULL);
+
+    /* 一次性把整个文件映射到内存 */
+    char *base = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (base == MAP_FAILED) {
+        LOG_ERROR("mmap fail");
+        close(fd);
+        return -1;
+    }
+    char *p = base;
+    char *end = base + st.st_size;
+
+    /* ★ 校验魔数 */
+    if (memcmp(p, "REDIS", 5) != 0) {
+        LOG_ERROR("不是合法 RDB 文件（魔数错误）");
+        munmap(base, st.st_size);
+        close(fd);
+        return -1;
+    }
+
+    /* ★ 读版本号 */
+    uint8_t version = (uint8_t)p[5];
+    LOG_DEBUG("RDB 版本: %u", version);
+
+    /*跳过魔数和版本*/
+    p+=6;
     
-    //1.检查魔数头
-    char magic[5] = {0};
-    if(read_n(fd,magic,5)!=0)
+    while(p<end)
     {
-        LOG_ERROR("读魔数失败 rdb损坏\n");
-        close(fd);
-        return -1;
-    }
-
-    //校验魔数
-    if(magic[0]!='R'||magic[1]!='E'||magic[2]!='D'||magic[3]!='I'||magic[4]!='S'){
-        LOG_ERROR("不是合法RDB文件\n");
-        close(fd);
-        return -1;
-    }
-
-    LOG_DEBUG("魔数校验通过:REDIS\n");
-
-    //2.读取1字节版本号
-    uint8_t ver;
-    if(read_n(fd,&ver, 1)!=0)
-    {
-        LOG_ERROR("读版本失败\n");
-        close(fd);
-        return -1;
-    }
-    
-    LOG_DEBUG("RDB版本:%u\n",ver);
-
-    int count = 0;
-    //3.循环读取kv键值对
-    while(1)
-    {
+        if (p + 4 > end) 
+        {
+            break;
+        }
         uint32_t klen;
-        if(read_n(fd,&klen,4)!=0)
+        memcpy(&klen,p,4);
+        p+=4;
+        if(klen == 0xFFFFFFFF)
         {
-            LOG_DEBUG("RDB文件读取结束\n");
             break;
         }
-
-        if(klen == 0xFFFFFFFFU)
-        {
-            // 已经读到eof_mark头部，直接退出
+        if (p + klen > end) {
+            LOG_ERROR("RDB 损坏:klen=%u 越界", klen);
             break;
         }
+    
+        char* key_data = p;
+        p+=klen;
 
-        char *key_buf = malloc(klen);
-        if(!key_buf)
+        if (p + 4 > end) 
         {
-            LOG_ERROR("malloc key fail\n");
-            close(fd);
-            return -1;
-        }
-        if(read_n(fd,key_buf,klen)!=0)
-        {
-            free(key_buf);
             break;
         }
-
         uint32_t vlen;
-        if(read_n(fd,&vlen,4)!=0)
-        {
-            free(key_buf);
+        memcpy(&vlen, p, 4); 
+        p += 4;
+        if (p + vlen > end) {
+            LOG_ERROR("RDB 损坏:vlen=%u 越界", vlen);
             break;
         }
-        char *val_buf = malloc(vlen);
-        if(!val_buf)
+        char *val_data = p;
+        p += vlen;
+
+        if (p + 8 > end) 
         {
-            LOG_ERROR("malloc val fail\n");
-            free(key_buf);
-            close(fd);
-            return -1;
-        }
-        if(read_n(fd,val_buf,vlen)!=0)
-        {
-            free(key_buf);
-            free(val_buf);
             break;
         }
+        uint64_t expire;
+        memcpy(&expire, p, 8);
+        p += 8;
 
-        uint64_t expire_ms;
-        if(read_n(fd, &expire_ms, sizeof(uint64_t))!=0)
-        {
-            free(key_buf);
-            free(val_buf);
-            break;
+        kvs_blob_t key = {key_data,klen};
+        kvs_blob_t val = {val_data,vlen};
+        int ret = engine_set(inst,&key,&val);
+        if (ret == -1) {
+            LOG_ERROR("engine_set 参数错误:klen=%u, vlen=%u", klen, vlen);
         }
-
-        kvs_blob_t key = {.data = key_buf,.len = klen};
-        kvs_blob_t val = {.data = val_buf,.len = vlen};
-
-        engine_set(inst, &key, &val);
-        free(key_buf);
-        free(val_buf);
-
-        count++;
-        LOG_DEBUG("加载完成第%d条数据\n",count);
+        
     }
+
+    munmap(base,st.st_size);
+
+    struct timeval tv_end;
+	gettimeofday(&tv_end, NULL);
+
+    int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
+                
+    LOG_INFO("RDB_sync调用成功 timeused:%d\n", time_used);
+
     close(fd);
     return 0;
 
@@ -375,32 +430,144 @@ int RDB_load(engine_t *inst)
   ==============================================================================================
 */
 //AOF
-int AOF(const char *msg)
+static struct io_uring g_ring;      /*io_uring实例*/
+static int g_aof_fd = -1;
+static time_t g_last_fsync = 0;
+static int g_pending = 0;           /*已提交但未确认的write数量*/
+
+#define AOF_RING_SIZE   256
+
+int AOF_init(void)
 {
-/*
-    use aof_always stragety
-*/
-
-    if(!msg) return -1;
-    FILE *fp = fopen("AOF.aof", "a");
-    if(!fp) return -1;
-    if(fputs(msg, fp) == EOF)
+    /*初始化io_uring*/
+    int ret = io_uring_queue_init(AOF_RING_SIZE,&g_ring, 0);
+    if(ret < 0)
     {
-        perror("fputs 写入失败\n");
-        fclose(fp);
-        return -1;
-    }
-    if(fputc('\n', fp) == EOF) {
-        perror("fputc 写入换行失败\n");
-        fclose(fp);
+        LOG_ERROR("io_uring_queue_init 失败: %s", strerror(-ret));
         return -1;
     }
 
-    //刷盘
-    fflush(fp);
-    fsync(fileno(fp));
+    /*打开AOF文件*/
+    g_aof_fd = open("AOF.aof",O_WRONLY | O_APPEND | O_CREAT, 0644);
+    if(g_aof_fd < 0)
+    {
+        LOG_ERROR("打开 AOF 失败: %s", strerror(errno));
+        io_uring_queue_exit(&g_ring);
+        return -1;
+    }
 
-    fclose(fp);
+    LOG_INFO("AOF 初始化完成");
+    return 0;
+}
+
+/*
+ * 排空 CQE
+ * wait_all = 1: 阻塞等所有 pending 完成
+ * wait_all = 0: 非阻塞，只排空已完成的
+ * 返回：成功排空的数量
+ */
+static int AOF_reap_completions(int wait_all)
+{
+    struct io_uring_cqe *cqe;
+    int reaped = 0;
+
+    while (g_pending > 0) {
+        int ret;
+        if (wait_all) {
+            /* 阻塞等 */
+            ret = io_uring_wait_cqe(&g_ring, &cqe);
+        } else {
+            /* 非阻塞 peek */
+            ret = io_uring_peek_cqe(&g_ring, &cqe);
+        }
+
+        if (ret < 0) break;   /* 没有更多完成的 */
+
+        /* 检查写入结果 */
+        if (cqe->res < 0) {
+            LOG_ERROR("io_uring write 失败: %s", strerror(-cqe->res));
+        }
+
+        /* 释放之前 malloc 的缓冲区 */
+        free((void *)cqe->user_data);
+
+        io_uring_cqe_seen(&g_ring, cqe);
+        g_pending--;
+        reaped++;
+
+        if (!wait_all) break;   /* 非阻塞模式下只处理一个 */
+    }
+
+    return reaped;
+}
+
+int AOF(const char *msg,int len,int strategy)
+{
+    if(g_aof_fd < 0 || !msg || len<=0)
+    {
+        return -1;
+    }
+
+    /* 1. ★ 拷贝数据（内核在写完成前会读取这块内存） */
+    char *buf = malloc(len);
+    if (!buf) return -1;
+    memcpy(buf, msg, len);
+
+    /* 2. 拿一个 SQE */
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&g_ring);
+    if (!sqe) {
+        /* SQ 队列满，先排空一批 */
+        AOF_reap_completions(1);
+        sqe = io_uring_get_sqe(&g_ring);
+        if (!sqe) {
+            free(buf);
+            LOG_ERROR("SQE 获取失败");
+            return -1;
+        }
+    }
+
+    /* 3. 填 SQE */
+    io_uring_prep_write(sqe, g_aof_fd, buf, len, 0);
+    sqe->user_data = (unsigned long long)buf;   /* ★ 保存指针，CQE 时释放 */
+
+    /* 4. 提交 */
+    if (io_uring_submit(&g_ring) < 0) {
+        LOG_ERROR("io_uring_submit 失败");
+        free(buf);
+        return -1;
+    }
+    g_pending++;
+
+     /* 5. 根据策略决定行为 */
+    switch (strategy) {
+        case AOF_ALWAYS:
+            /* 等所有 pending 完成 + fsync */
+            AOF_reap_completions(1);
+            fsync(g_aof_fd);
+            break;
+
+        case AOF_EVERYSEC: {
+            /* 队列快满时排空，防止 SQ 满 */
+            if (g_pending >= AOF_RING_SIZE * 3 / 4) {
+                AOF_reap_completions(0);
+            }
+            /* 每秒 fsync 一次 */
+            time_t now = time(NULL);
+            if (now - g_last_fsync >= 1) {
+                AOF_reap_completions(1);   /* 先等所有 write 完成 */
+                fsync(g_aof_fd);
+                g_last_fsync = now;
+            }
+            break;
+        }
+
+        case AOF_NO:
+            /* 只在必要时候排空 */
+            if (g_pending >= AOF_RING_SIZE * 3 / 4) {
+                AOF_reap_completions(0);
+            }
+            break;
+    }
     return 0;
 }
 
@@ -413,49 +580,97 @@ int AOF_rewrite()
 
 int AOF_restore()
 {
-    FILE* fp = fopen("AOF.aof","r");
-    if(fp == NULL)
+    int fd = open("AOF.aof", O_RDONLY);
+    if(fd<0)
     {
-        perror("AOF.aof不存在\n");
+        if (errno == ENOENT) {
+            LOG_INFO("AOF.aof 不存在，跳过恢复");
+            return 0;
+        }
+        LOG_ERROR("打开 AOF.aof 失败: %s", strerror(errno));
         return -1;
     }
 
-    char line[BUFFER_LENGTH]={0};
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        close(fd);
+        return -1;
+    }
+    size_t file_size = st.st_size;   
 
-    int count = 0;
-    while(fgets(line,sizeof(line), fp)!=NULL)
+    if (file_size == 0) 
     {
-        //去掉换行符 为sscanf函数做准备
-        line[strcspn(line,"\n")]=0;
-        //跳过空行
-        if(strlen(line)==0) continue;
-
-        //把一行数据解析
-        char cmd[16] = {0};
-        char key[256] = {0};
-        char val[256] = {0};
-
-        //拆字符串
-        sscanf(line,"%s %s %s",cmd,key,val);
-
-        kvs_blob_t key_blob = {.data = key,.len = strlen(key)};
-        kvs_blob_t val_blob = {.data = val,.len = strlen(val)};
-
-        if(strcmp(cmd,"SET")==0)
-        {
-            engine_set(g_engine,&key_blob,&val_blob);
-        }
-        else if(strcmp(cmd,"MOD")==0)
-        {
-            engine_mod(g_engine,&key_blob,&val_blob);
-        }
-        else if(strcmp(cmd,"DEL")==0)
-        {
-            engine_del(g_engine,&key_blob);
-        }
-        count++;
+        LOG_INFO("AOF.aof 为空，跳过恢复");
+        close(fd);
+        return 0;
+    }
+    /* 读文件内容 */
+    char *base = mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (base == MAP_FAILED) {
+        LOG_ERROR("mmap 失败: %s", strerror(errno));
+        close(fd);
+        return -1;
     }
 
-    LOG_INFO("AOF恢复完成,共恢复%d条数据\n",count);
+    /* 4. mmap 之后 fd 可以关了，不影响映射 */
+    close(fd);
+
+    struct timeval tv_begin;
+	gettimeofday(&tv_begin, NULL);
+    
+    /* 当作 RESP 命令流解析 */
+    int offset = 0;
+    int count = 0;
+    while (offset < (int)file_size) 
+    {
+        kvs_blob_t cmd={0}, key={0}, val={0};
+        int consumed = 0;
+        int ret = server_decode_resp(base + offset, file_size - offset,&cmd, &key, &val, &consumed);
+        if(ret == -2)
+        {
+            LOG_ERROR("AOF 文件不完整(偏移 %d)", offset);
+            break;
+        }
+        if (ret == -1) 
+        {
+            LOG_ERROR("AOF 文件损坏(偏移 %d)", offset);
+            break;
+        }
+        if (cmd.len == 3 && memcmp(cmd.data, "SET", 3) == 0) {
+            engine_set(g_engine, &key, &val);
+        } else if (cmd.len == 3 && memcmp(cmd.data, "DEL", 3) == 0) {
+            engine_del(g_engine, &key);
+        } else if (cmd.len == 3 && memcmp(cmd.data, "MOD", 3) == 0) {
+            engine_mod(g_engine, &key, &val);
+        } else {
+            LOG_WARN("AOF 中出现不支持的命令: %.*s", cmd.len, cmd.data);
+        }
+
+        offset += consumed;
+        count++;
+    
+    }
+    LOG_INFO("AOF 恢复完成，共 %d 条命令", count);
+
+    struct timeval tv_end;
+	gettimeofday(&tv_end, NULL);
+
+    int time_used = TIME_SUB_MS(tv_end, tv_begin); // ms
+                
+    LOG_INFO("AOF_restore调用成功 timeused:%d\n", time_used);
+    /*解除映射*/
+    munmap(base, file_size);
     return 0;
+}
+
+void AOF_destroy(void)
+{
+    if(g_aof_fd >=0)
+    {
+        AOF_reap_completions(1);   /* ★ 等所有 pending write 完成 */
+        fsync(g_aof_fd);           /* ★ 强制落盘 */
+        close(g_aof_fd);
+        g_aof_fd = -1;
+    }
+    io_uring_queue_exit(&g_ring);
 }

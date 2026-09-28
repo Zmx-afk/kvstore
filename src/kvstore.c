@@ -63,7 +63,9 @@ int g_aof_enabled = 0;
 
 
 
-
+/*
+    is_write_cmd函数是用来判断是否是对键值对更改的命令 如果是则同步到从节点
+*/
 int is_write_cmd(int cmd) {
     switch(cmd) {
         case PROTO_CMD_SET:case PROTO_CMD_MOD:case PROTO_CMD_DEL:
@@ -74,25 +76,40 @@ int is_write_cmd(int cmd) {
 
 
 
-/*
-    resp协议
-*/
+/* 返回值：
+ *   >= 0  = 响应字节数
+ *   -1    = 格式错误
+ *   -2    = 数据不完整
+ */
 
-int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
-    if (msg == NULL || length < PROTO_MIN_LEN || response == NULL) return -1;
+int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync,int *consumed) 
+{
+    if (msg == NULL || length < PROTO_MIN_LEN || response == NULL) 
+    {
+        return -1;
+    }
+    *consumed = 0;
 
     kvs_blob_t cmd_blob = {0};
     kvs_blob_t key_blob = {0};
     kvs_blob_t val_blob = {0};
     
-    server_decode_resp(msg,&cmd_blob,&key_blob,&val_blob);
+    int dec_ret = server_decode_resp(msg,length,&cmd_blob,&key_blob,&val_blob,consumed);
+    if (dec_ret == -2) 
+    {
+        return -2;   /* 数据不完整，往上抛 */
+    }
+    if (dec_ret == -1) 
+    {
+        return -1;   /* 格式错误 */
+    }
 
     int ret_len = 0;
 	int ret = 0;
-
     int admin_cmd = -1;
     int cmd;
-    //第一步优先匹配管理命令
+
+    /*第一步优先匹配管理命令*/
     for(int i=0;i<ADMIN_CMD_COUNT;i++)
     {
         if(strlen(admin_command[i])==cmd_blob.len&&strncmp(cmd_blob.data, admin_command[i], cmd_blob.len)==0)
@@ -101,10 +118,11 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
             break;
         }
     }
-    //处理管理命令 没有则处理普通命令
+
+    /*处理管理命令 没有则处理普通命令*/
     if(admin_cmd != -1)
     {
-        LOG_INFO("admin_cmd:%s\n",admin_command[admin_cmd]);
+        //LOG_INFO("admin_cmd:%s\n",admin_command[admin_cmd]);
         //处理管理指令
         switch(admin_cmd)
         {
@@ -162,7 +180,6 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
         switch (cmd) 
         {
             case PROTO_CMD_SET:
-                //LOG_DEBUG(">>> SET command executed!\n");
                 ret = engine_set(g_engine,&key_blob, &val_blob);
                 if (ret < 0) {
                     ret_len = sprintf(response, "-ERR internal error\r\n");
@@ -219,6 +236,8 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
                 else
                     ret_len = sprintf(response, ":0\r\n");
                 break;
+            case PROTO_CMD_EXPIRE:
+                break;
         default: 
             ret_len = sprintf(response, "-ERR unknown command\r\n");
             break;
@@ -230,43 +249,22 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
         
     }
 
-    //AOF持久化使用
-        if(g_config.role == ROLE_MASTER && g_config.aof_strategy == AOF_ALWAYS)
-        {
-            //持久化
-            char aof_buf[BUFFER_LENGTH] ={0};
-            if(admin_cmd != -1)
-            {
-                snprintf(aof_buf,sizeof(aof_buf),"%.*s\r\n",cmd_blob.len, cmd_blob.data);
-            }
-            else 
-            {
-                snprintf(aof_buf,sizeof(aof_buf),"%.*s %.*s %.*s\r\n",cmd_blob.len, cmd_blob.data,key_blob.len, key_blob.data,val_blob.len, val_blob.data);
-            }
-            LOG_DEBUG("AOF持久化被调用");
-            LOG_DEBUG("aof_buf:%s", aof_buf);
+    /*判断是否是写命令*/
+    int should_aof = 0;
+    if(admin_cmd == ADMIN_CMD_FLUSHALL)
+    {
+        should_aof = 1;
+    }
+    else if(cmd == PROTO_CMD_SET || cmd == PROTO_CMD_MOD || cmd == PROTO_CMD_DEL)
+    {
+        should_aof = 1;
+    }
 
-            AOF(aof_buf);
-        }
-  
-
-
-    
-
-	
-    // if (g_role == ROLE_SLAVE && is_write_cmd(cmd)&&!g_is_sync) {
-    //     ret_len = sprintf(response, "READONLY: cannot write to slave\r\n");
-    //     return ret_len;
-    // }
-
-    // printf("val:%s,val_len:%d\n",val_blob.data,val_blob.len);
-/*
-    RESP协议
-    简单字符串前加+
-    错误前加-
-    整数前加:
-*/
-
+    if (should_aof && g_role == ROLE_MASTER && g_config.aof_strategy != AOF_NO)
+    {
+        /* ★ 直接存原始 RESP 字节流 */
+        AOF(msg, *consumed, g_config.aof_strategy);
+    }
 	
 
 
@@ -280,19 +278,49 @@ int kvs_filter_protocol(char *msg, int length, char *response,int *is_sync) {
 }
 
 
-
 /*
- * msg: request message
- * length: length of request message
- * response: need to send
- * @return : length of response
+ * 循环解析缓冲区里的所有完整命令
+ * 返回：响应的总字节数
+ * consumed：输出，本次消耗了多少字节（用于上层 memmove）
  */
 
-int kvs_protocol(char *msg, int length, char *response,int *is_sync) 
+int kvs_protocol(char *msg, int length, char *response,int *is_sync,int *consumed) 
 { 
-	if (msg == NULL || length <= 0 || response == NULL) return -1;
-    
-    return kvs_filter_protocol(msg,length, response,is_sync);
+	if (msg == NULL || length <= 0 || response == NULL||consumed == NULL)
+    {
+         return -1;
+    }
+
+    *consumed = 0;
+    int offset = 0;     /*已处理到哪*/
+    int resp_len = 0;   /*已生成的响应总长度*/
+
+    while(offset<length)
+    {
+        int used = 0;
+        /* ★ 处理一条命令 */
+        int ret = kvs_filter_protocol(msg + offset,length - offset,response + resp_len,is_sync, &used);
+        if (ret == -2) 
+        {
+            /* ★ 数据不完整，退出循环，保留剩余数据 */
+            break;
+        }
+        if (ret == -1) 
+        {
+            /* 格式错误，丢弃所有数据 */
+            *consumed = length;
+            return resp_len;
+        }
+
+        /* ret >= 0：正常响应字节数 */
+        offset += used;
+        resp_len += ret;
+
+
+    }
+
+    *consumed = offset;   /*告诉上层消耗了多少 */
+    return resp_len;
 }
 
 

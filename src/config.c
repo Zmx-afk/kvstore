@@ -22,13 +22,14 @@ static void trim(char *str) {
     }
 }
 
-int load_config(const char *filename) {
+int load_config(const char *filename) 
+{
     FILE *fp = fopen(filename, "r");
+    
     if (!fp) {
         perror("fopen config file");
         return -1;
     }
-
     char line[MAX_LINE_LEN];
     while (fgets(line, sizeof(line), fp)) {
         // 跳过空行和注释（以 # 开头）
@@ -46,7 +47,6 @@ int load_config(const char *filename) {
 
         trim(key);
         trim(val);
-        // printf("key:%s val:%s\n",key,val);
 
         // 按 key 赋值到全局配置
         if (strcmp(key, "ip") == 0) 
@@ -126,8 +126,6 @@ int load_config(const char *filename) {
         }
 
     }
-
-
 
     fclose(fp);
     return 0;

@@ -6,40 +6,53 @@
 
 #include <arpa/inet.h>
 #include <stdio.h>
+#include "../include/kvstore.h"
 
-
-
-typedef int (*msg_handler)(char *msg, int length, char *response);
 static msg_handler kvs_handler;
 
 
+#define BUFFER_LENGTH 1024
 void server_reader(void *arg) {
-	int fd = *(int *)arg;
-	int ret = 0;
+    int fd = *(int *)arg;
+    free(arg);   /* ★ 记得 free，之前 malloc 出来的 */
 
- 
-	while (1) {
-		
-		char buf[1024] = {0};
-		ret = recv(fd, buf, 1024, 0);
-		if (ret > 0) {
-			
-			char response[1024] = {0};
-			int slength = kvs_handler(buf, ret, response);
+    /* ★ 累积缓冲区 */
+    char rbuf[BUFFER_LENGTH * 4];   /* 4KB */
+    int rlen = 0;
 
-			ret = send(fd, response, slength, 0);
-			if (ret == -1) {
-				close(fd);
-				break;
-			}
-		} else if (ret == 0) {	
-			close(fd);
-			break;
-		}
+    while (1) {
+        /* 1. 从 rlen 位置继续接收 */
+        int n = recv(fd, rbuf + rlen, sizeof(rbuf) - rlen, 0);
+        if (n <= 0) {
+            close(fd);
+            break;
+        }
+        rlen += n;
 
-	}
+        /* 2. 一次性交给 kvs_protocol，它内部循环解析所有完整命令 */
+        char response[BUFFER_LENGTH * 4] = {0};
+        int consumed = 0;
+		int is_sync = 0; 
+        int resp_len = kvs_handler(rbuf, rlen, response, &is_sync, &consumed);
+
+        /* 3. 发送响应 */
+        if (resp_len > 0) {
+            send(fd, response, resp_len, 0);
+        }
+
+        /* 4. 根据 consumed 移动缓冲区 */
+        if (consumed > 0) {
+            memmove(rbuf, rbuf + consumed, rlen - consumed);
+            rlen -= consumed;
+        }
+
+        /* 5. 缓冲区满但还没解析出完整命令 → 异常 */
+        if (rlen == sizeof(rbuf)) {
+            close(fd);
+            break;
+        }
+    }
 }
-
 
 
 void server(void *arg) {
@@ -60,7 +73,7 @@ void server(void *arg) {
 	}
 
 	listen(fd, 20);
-	printf("listen port : %d\n", port);
+
 
 
 	while (1) {
@@ -69,7 +82,9 @@ void server(void *arg) {
 		
 
 		nty_coroutine *read_co;
-		nty_coroutine_create(&read_co, server_reader, &cli_fd);
+		int *pfd = malloc(sizeof(int));
+		*pfd = cli_fd;
+		nty_coroutine_create(&read_co, server_reader, pfd);
 
 	}
 	

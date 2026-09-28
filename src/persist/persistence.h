@@ -18,4 +18,7 @@ int RDB_async();
 
 int RDB_load(engine_t *inst);
 
+void AOF_destroy(void);
+int AOF_init(void);
+
 #endif

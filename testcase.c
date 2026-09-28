@@ -21,7 +21,7 @@
 #define MAX_MSG_LENGTH		1024
 #define TIME_SUB_MS(tv1, tv2)  ((tv1.tv_sec - tv2.tv_sec) * 1000 + (tv1.tv_usec - tv2.tv_usec) / 1000)
 
-#define COUNT 50000
+#define COUNT 100000
 
 int send_msg(int connfd, char *msg) {
 	char packet[1024] = {0};
@@ -459,7 +459,7 @@ int main(int argc, char *argv[]) {
             send_msg(master_fd, buf);
             recv_msg(master_fd, resp, sizeof(resp));
             sprintf(expected, "King%d", i);
-            LOG_DEBUG("resp: %s, expected: %s\n", resp, expected);
+            //LOG_DEBUG("resp: %s, expected: %s\n", resp, expected);
             if (!response_matches(resp, expected)) miss++;
         }
         close(master_fd);
@@ -543,6 +543,7 @@ int main(int argc, char *argv[]) {
         int fd = connect_tcpserver(ip, master_port);
         kvs_testcase1_100w(fd);
     }
+
 
 
 	return 0;

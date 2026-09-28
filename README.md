@@ -59,7 +59,11 @@
     对存储引擎改用哈希表 原先使用数组
     数组10w条数据进行SET->GET->MOD->GET->EXIST->DEL->GET->MOD->EXIST 用时128.3s qps7011
     hash10w条数据进行测试(djb2算法) 用时28.87s qps31170
-    hash100w条数据进行测试(fnv1a算法) 用时283.9s qps31692
+    hash100w条数据进行测试(fnv1a算法) 用时283.9s qps31692 使用jemalloc后用时271.6s qps33129
+
+9.26
+    mmap后rdb持久化五万条数据加载 用时8ms
+    mmap后aof持久化10w条数据加载 用时26ms
 
     
 
